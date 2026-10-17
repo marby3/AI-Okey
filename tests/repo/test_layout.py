@@ -18,7 +18,7 @@ RENAMED_CRATES = {
 }
 
 CODE_DIRS = ["crates", "installer", "scripts", ".github", "docker"]
-CODE_SUFFIXES = {".rs", ".toml", ".proto", ".rc", ".h", ".iss", ".xml", ".yml", ".yaml", ".bat", ".sh", ".ps1"}
+CODE_SUFFIXES = {".rs", ".toml", ".proto", ".rc", ".h", ".iss", ".xml", ".yml", ".yaml", ".bat", ".sh", ".ps1", ".Dockerfile"}
 
 
 def load_toml(path: Path) -> dict:

@@ -82,7 +82,7 @@ pub fn setup_logger() -> anyhow::Result<()> {
 
     DllModule::get()?.sender = Some(sender);
 
-    // ignore traces from other crates
+    // ignore traces from other crates（"aiokey" はこのクレートのライブラリ名。DLL 名と同じ）
     let filter = Targets::new()
         .with_target("aiokey", LevelFilter::DEBUG)
         .with_default(LevelFilter::OFF);

@@ -147,3 +147,4 @@ begin
   if CurPageID = wpFinished then
     WizardForm.RunList.Visible := False;
 end;
+

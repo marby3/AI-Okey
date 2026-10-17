@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Windows 向けバイナリを cargo-xwin でクロスビルドし、build/ に集める。
-# dev コンテナの中で実行する: docker compose -f docker/compose.yml run --rm dev scripts/build-windows.sh [release|debug]
+# dev コンテナの中で実行する: docker compose run --rm dev scripts/build-windows.sh [release|debug]
 set -euo pipefail
 
 profile="${1:-release}"

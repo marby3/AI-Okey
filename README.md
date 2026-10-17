@@ -28,17 +28,17 @@ htsthqtun  →  果たして本当に
 
 ## 開発
 
-開発は Docker の dev コンテナで行います。
+開発は Docker の dev コンテナで行います。Windows では、WSL の中の Docker Engine から、リポジトリのルート（`/mnt/c/...`）で実行します（例：`wsl -d Ubuntu --cd /mnt/c/<リポジトリのパス> -- docker compose run --rm dev cargo test-portable`）。
 
 ```sh
 # イメージを作る
-docker compose -f docker/compose.yml build dev
+docker compose build dev
 
 # OS に依存しないクレートのテスト
-docker compose -f docker/compose.yml run --rm dev cargo test-portable
+docker compose run --rm dev cargo test-portable
 
 # Windows 向けバイナリのクロスビルド（build/ に出力）
-docker compose -f docker/compose.yml run --rm dev scripts/build-windows.sh
+docker compose run --rm dev scripts/build-windows.sh
 ```
 
 正式なリリースビルドは、`v*` タグを push したときに GitHub Actions の Windows ランナーで行います。

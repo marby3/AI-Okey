@@ -9,6 +9,7 @@ use aiokey_ipc::proto::{
 use tonic::{Request, Response, Status};
 
 /// 変換エンジンを入れるまでのスタブ。入力された文字列をそのまま 1 件の候補として返す。
+/// 入力が空のときは候補を返さない（空の候補を 1 件返すと TSF 側に空の候補が出るため）。
 #[derive(Debug, Default)]
 pub struct EchoService {
     input: Mutex<String>,
@@ -16,13 +17,18 @@ pub struct EchoService {
 
 impl EchoService {
     fn composing_text(input: &str) -> Option<ComposingText> {
-        Some(ComposingText {
-            hiragana: input.to_string(),
-            suggestions: vec![Suggestion {
+        let suggestions = if input.is_empty() {
+            vec![]
+        } else {
+            vec![Suggestion {
                 text: input.to_string(),
                 subtext: String::new(),
                 corresponding_count: input.chars().count() as i32,
-            }],
+            }]
+        };
+        Some(ComposingText {
+            hiragana: input.to_string(),
+            suggestions,
         })
     }
 
@@ -40,6 +46,9 @@ impl AiokeyService for EchoService {
         request: Request<AppendTextRequest>,
     ) -> Result<Response<AppendTextResponse>, Status> {
         let text = request.into_inner().text_to_append;
+        if text.is_empty() {
+            return Err(Status::invalid_argument("text_to_append is empty"));
+        }
         let composing_text = self.edit(|input| input.push_str(&text));
         Ok(Response::new(AppendTextResponse { composing_text }))
     }

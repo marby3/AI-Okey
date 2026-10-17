@@ -1,12 +1,22 @@
+# AI-O Key の開発用コンテナ。リポジトリのルートで `docker compose run --rm dev <コマンド>` として使う。
+#
+# PC の負荷を抑えるため、コンテナと cargo の並列数に上限を設けている。環境変数で変えられる：
+#   AIOKEY_CPUS（既定 2）、AIOKEY_MEM（既定 1536m）、AIOKEY_JOBS（cargo の並列数。既定 2）
 services:
   dev:
     build:
       context: .
-      dockerfile: dev.Dockerfile
+      dockerfile: docker/dev.Dockerfile
+      args:
+        BUILD_JOBS: ${AIOKEY_JOBS:-2}
     image: aiokey-dev
     working_dir: /work
+    cpus: ${AIOKEY_CPUS:-2}
+    mem_limit: ${AIOKEY_MEM:-1536m}
+    environment:
+      CARGO_BUILD_JOBS: ${AIOKEY_JOBS:-2}
     volumes:
-      - ..:/work
+      - .:/work
       - cargo-registry:/opt/cargo/registry
       - target-linux:/work/target
 volumes:
