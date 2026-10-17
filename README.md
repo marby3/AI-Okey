@@ -20,7 +20,7 @@ htsthqtun  →  果たして本当に
 | クレート | 役割 |
 |---|---|
 | `aiokey-tsf` | Windows の TSF テキストサービス（`aiokey.dll`） |
-| `aiokey-server` | 変換サーバー。Windows は名前付きパイプ、unix はソケットで待ち受ける |
+| `aiokey-server` | 変換サーバー。Windows は名前付きパイプ、unix は `$XDG_RUNTIME_DIR/aiokey_server.sock` で待ち受ける（`XDG_RUNTIME_DIR` がないと起動しない） |
 | `aiokey-ui` | 候補ウィンドウとモード表示 |
 | `aiokey-launcher` | サーバーと UI を起動する |
 | `aiokey-ipc` | gRPC の定義と設定ファイル |
