@@ -10,6 +10,7 @@ use tonic::{Request, Response, Status};
 
 /// 変換エンジンを入れるまでのスタブ。入力された文字列をそのまま 1 件の候補として返す。
 /// 入力が空のときは候補を返さない（空の候補を 1 件返すと TSF 側に空の候補が出るため）。
+/// 空文字の AppendText は InvalidArgument で拒否する（TSF 側の AppendText は候補 0 件を想定していないため）。
 #[derive(Debug, Default)]
 pub struct EchoService {
     input: Mutex<String>,

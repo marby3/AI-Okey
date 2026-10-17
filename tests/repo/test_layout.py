@@ -1,5 +1,6 @@
 """リポジトリ構成の受け入れテスト（Issue #1）。"""
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -16,6 +17,8 @@ RENAMED_CRATES = {
     "crates/aiokey-ipc": "aiokey-ipc",
     "crates/aiokey-macros": "aiokey-macros",
 }
+
+URL = re.compile(r"https?://\S+")
 
 CODE_DIRS = ["crates", "installer", "scripts", ".github", "docker"]
 CODE_SUFFIXES = {".rs", ".toml", ".proto", ".rc", ".h", ".iss", ".xml", ".yml", ".yaml", ".bat", ".sh", ".ps1", ".Dockerfile"}
@@ -54,8 +57,8 @@ def test_crates_and_identifiers_are_renamed_to_aiokey():
             if path.suffix not in CODE_SUFFIXES or "target" in path.parts:
                 continue
             for no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                # 出典として URL を書く行は残してよい
-                if "azookey" in line.lower() and "github.com" not in line.lower():
+                # 出典として書いた URL の中の azookey だけは残してよい
+                if "azookey" in URL.sub("", line).lower():
                     offenders.append(f"{path.relative_to(ROOT)}:{no}: {line.strip()}")
     assert offenders == []
 

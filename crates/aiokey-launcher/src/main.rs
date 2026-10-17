@@ -27,7 +27,7 @@ fn start_process(exe: &Path, prefix: &str) -> Option<Child> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect(&format!("Failed to start {}", exe.display()));
+        .unwrap_or_else(|e| panic!("Failed to start {}: {e}", exe.display()));
 
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let stdout_reader = BufReader::new(stdout);

@@ -14,7 +14,7 @@ License: MIT (Copyright (c) 2026 fkunn1326)
 Mozc
 https://github.com/google/mozc
 License: BSD-3-Clause (Copyright Google Inc.)
-用途: システム辞書と連接コストのデータ（src/data/dictionary_oss）、候補ウィンドウの見た目の参考。
+用途: システム辞書と連接コストのデータ（src/data/dictionary_oss。Issue #3 で取り込む）、候補ウィンドウの見た目の参考。
 辞書データには IPAdic 由来の部分を含み、その著作権表示とライセンスは
 Mozc の src/data/dictionary_oss/README.txt に従う。
 

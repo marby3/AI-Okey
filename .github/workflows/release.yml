@@ -49,6 +49,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # v1.0.0（実機で打てる最初の版）より前と、-rc などの付いた版はプレリリースにする
           prerelease=""
           case "$GITHUB_REF_NAME" in v0.*|*-*) prerelease="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" "aiokey-$GITHUB_REF_NAME-windows.zip" \

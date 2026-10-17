@@ -15,6 +15,8 @@ services:
     mem_limit: ${AIOKEY_MEM:-1536m}
     environment:
       CARGO_BUILD_JOBS: ${AIOKEY_JOBS:-2}
+      # aiokey-server（unix）はソケットを XDG_RUNTIME_DIR にだけ作る。コンテナには既定でないので用意する
+      XDG_RUNTIME_DIR: /tmp
     volumes:
       - .:/work
       - cargo-registry:/opt/cargo/registry

@@ -20,7 +20,7 @@ jobs:
         run: cargo test-portable
       - uses: astral-sh/setup-uv@v6
       - name: Repository layout tests
-        run: uv run --no-project --python 3.12 --with pytest pytest tests/repo -q
+        run: uv run --no-project --python 3.12 --with pytest==8.4.2 pytest tests/repo -q
 
   windows:
     runs-on: windows-latest
