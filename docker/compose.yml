@@ -1,0 +1,14 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: dev.Dockerfile
+    image: aiokey-dev
+    working_dir: /work
+    volumes:
+      - ..:/work
+      - cargo-registry:/opt/cargo/registry
+      - target-linux:/work/target
+volumes:
+  cargo-registry:
+  target-linux:

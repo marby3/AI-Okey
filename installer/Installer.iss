@@ -2,15 +2,17 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 #include "CodeDependencies.iss"
 
-#define MyAppName "Azookey"
-#define MyAppVersion "0.1.0-alpha.1"
-#define MyAppPublisher "fkunn1326"
-#define MyAppURL "https://github.com/fkunn1326/azooKey-Windows/"
+#define MyAppName "AI-O Key"
+#ifndef MyAppVersion
+  #define MyAppVersion "0.1.0"
+#endif
+#define MyAppPublisher "marby3"
+#define MyAppURL "https://github.com/marby3/AI-Okey/"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
-AppId={{80B746D4-D74D-4345-8F81-47E06BCAB515}
+AppId={{DF1F8404-A5DA-4E67-A9CE-F26B137C841A}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 ;AppVerName={#MyAppName} {#MyAppVersion}
@@ -18,7 +20,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={userappdata}\{#MyAppName}
+DefaultDirName={userappdata}\aiokey
 ; "ArchitecturesAllowed=x64compatible" specifies that Setup cannot run
 ; on anything but x64 and Windows 11 on Arm.
 ArchitecturesAllowed=x64compatible
@@ -31,7 +33,7 @@ DisableProgramGroupPage=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
 OutputDir=../build
-OutputBaseFilename=azookey-setup
+OutputBaseFilename=aiokey-setup
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
@@ -40,38 +42,32 @@ PrivilegesRequired=admin
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 
 [Files]
-Source: "../build/azookey_windows.dll"; DestDir: "{app}"; DestName: "azookey.dll"; Flags: ignoreversion regserver 64bit
-Source: "../build/x86/azookey_windows.dll"; DestDir: "{app}"; DestName: "azookey32.dll"; Flags: ignoreversion regserver 32bit
+Source: "../build/aiokey.dll"; DestDir: "{app}"; DestName: "aiokey.dll"; Flags: ignoreversion regserver 64bit
+Source: "../build/x86/aiokey.dll"; DestDir: "{app}"; DestName: "aiokey32.dll"; Flags: ignoreversion regserver 32bit
 Source: "../build/*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "../target/release/bundle/nsis/Azookey_0.1.0_x64-setup.exe"; Flags: dontcopy noencryption
-Source: "./Azookey Startup.xml"; Flags: dontcopy noencryption
+Source: "./AI-O Key Startup.xml"; Flags: dontcopy noencryption
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Run]
 Filename: "icacls"; \
-  Parameters: "{app}\azookey.dll /grant ""*S-1-15-2-1:(RX)"""; \
+  Parameters: "{app}\aiokey.dll /grant ""*S-1-15-2-1:(RX)"""; \
   Description: "Grant Permission"; \
   Flags: runhidden postinstall runascurrentuser
 Filename: "icacls"; \
-  Parameters: "{app}\azookey32.dll /grant ""*S-1-15-2-1:(RX)"""; \
+  Parameters: "{app}\aiokey32.dll /grant ""*S-1-15-2-1:(RX)"""; \
   Description: "Grant Permission"; \
   Flags: runhidden postinstall runascurrentuser
 
 [UninstallRun]
 Filename: "schtasks"; \
-  Parameters: "/Delete /TN ""Azookey Startup"" /F"; \
+  Parameters: "/Delete /TN ""AI-O Key Startup"" /F"; \
   Flags: runhidden runascurrentuser
 
 [Code]
 function InitializeSetup: Boolean;
 begin
-  ExtractTemporaryFile('Azookey_0.1.0_x64-setup.exe');
   Dependency_AddVC2015To2022x64;
   Dependency_AddVC2015To2022x86;
-  Dependency_Add('Azookey_0.1.0_x64-setup.exe',
-    '/q',
-    'Azookey',
-    '', '', True, False);
 
   Result := True;
 end;
@@ -102,8 +98,8 @@ var
   TaskXmlContent: String;
   Dummy: Integer;
 begin
-  ExtractTemporaryFile('Azookey Startup.xml'); // ファイル展開
-  TaskXmlPath := ExpandConstant('{tmp}\Azookey Startup.xml');
+  ExtractTemporaryFile('AI-O Key Startup.xml'); // ファイル展開
+  TaskXmlPath := ExpandConstant('{tmp}\AI-O Key Startup.xml');
 
   LoadStringFromFile(TaskXmlPath, TaskXmlContentAnsi)
 
@@ -113,8 +109,8 @@ begin
   TaskXmlContentAnsi := AnsiString(TaskXmlContent);
   SaveStringToFile(TaskXmlPath, TaskXmlContentAnsi, False);
 
-  ShellExec('', 'schtasks', '/Create /F /TN "Azookey Startup" /XML "' + TaskXmlPath + '"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
-  ShellExec('', 'schtasks', '/Run /TN "Azookey Startup"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
+  ShellExec('', 'schtasks', '/Create /F /TN "AI-O Key Startup" /XML "' + TaskXmlPath + '"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
+  ShellExec('', 'schtasks', '/Run /TN "AI-O Key Startup"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
 end;
 
 procedure CreateVbsFile();
@@ -125,7 +121,7 @@ begin
   VbsFile := ExpandConstant('{app}\launch.vbs');
   VbsContent :=
     'Set objShell = CreateObject("WScript.Shell")' + #13#10 +
-    'objShell.Run "' + ExpandConstant('{app}\launcher.exe') + '", 0, False' + #13#10;
+    'objShell.Run "' + ExpandConstant('{app}\aiokey-launcher.exe') + '", 0, False' + #13#10;
 
   if SaveStringToFile(VbsFile, VbsContent, False) then
   begin
@@ -136,21 +132,6 @@ begin
     Log('Failed to create VBS file: ' + VbsFile);
   end;
 end;
-
-procedure UninstallAzookey();
-var
-  UninstallString: string;
-  Dummy: Integer;
-begin
-  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\Azookey', 'UninstallString', UninstallString) then
-  begin
-    if UninstallString <> '' then
-    begin
-      ShellExec('', UninstallString, '', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
-    end;
-  end;
-end;
-
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
@@ -165,12 +146,4 @@ procedure CurPageChanged(CurPageID: Integer);
 begin
   if CurPageID = wpFinished then
     WizardForm.RunList.Visible := False;
-end;
-
-procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-begin
-  if CurUninstallStep = usPostUninstall then
-  begin
-    UninstallAzookey();
-  end;
 end;

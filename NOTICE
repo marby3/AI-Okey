@@ -1,0 +1,43 @@
+AI-O Key
+Copyright (c) 2026 marby3
+
+このソフトウェアのソースコードは MIT License で配布します（LICENSE を参照）。
+以下の第三者の成果物を利用・参照しています。
+
+--------------------------------------------------------------------------------
+azooKey-Windows
+https://github.com/fkunn1326/azooKey-Windows
+License: MIT (Copyright (c) 2026 fkunn1326)
+用途: TSF クライアント、候補ウィンドウ、IPC、インストーラーのフォーク元。
+
+--------------------------------------------------------------------------------
+Mozc
+https://github.com/google/mozc
+License: BSD-3-Clause (Copyright Google Inc.)
+用途: システム辞書と連接コストのデータ（src/data/dictionary_oss）、候補ウィンドウの見た目の参考。
+辞書データには IPAdic 由来の部分を含み、その著作権表示とライセンスは
+Mozc の src/data/dictionary_oss/README.txt に従う。
+
+--------------------------------------------------------------------------------
+AzooKeyKanaKanjiConverter
+https://github.com/azooKey/AzooKeyKanaKanjiConverter
+License: MIT
+用途: zenz の入力形式（区切りトークン）の参考。
+
+--------------------------------------------------------------------------------
+zenz-v2.5-xsmall
+https://huggingface.co/Miwa-Keita/zenz-v2.5-xsmall
+License: CC-BY-SA 4.0
+用途: 段2の採点モデルのベース。これを再学習した派生モデルも CC-BY-SA 4.0 で配布する。
+
+--------------------------------------------------------------------------------
+Wikipedia 日本語版
+https://ja.wikipedia.org/
+License: CC-BY-SA 4.0
+用途: 学習・評価データの生成に使うコーパス。
+
+--------------------------------------------------------------------------------
+llama.cpp
+https://github.com/ggml-org/llama.cpp
+License: MIT
+用途: 段2モデルの CPU 推論。
