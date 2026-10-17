@@ -19,3 +19,17 @@ async fn append_text_echoes_input_as_single_candidate() {
     assert_eq!(composing.suggestions.len(), 1);
     assert_eq!(composing.suggestions[0].text, "htst");
 }
+
+#[tokio::test]
+async fn append_text_rejects_empty_input() {
+    let service = EchoService::default();
+
+    let status = service
+        .append_text(Request::new(AppendTextRequest {
+            text_to_append: String::new(),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+}
