@@ -25,7 +25,9 @@ jobs:
         shell: bash
         run: |
           version=$(grep -m1 '^version = ' Cargo.toml | sed -E 's/version = "(.*)"/\1/')
-          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != v$version"; exit 1; }
+          # v0.1.0-rc.1 のようなプレリリースは、接尾辞を除いて比べる
+          tag="${GITHUB_REF_NAME%%-*}"
+          test "v$version" = "$tag" || { echo "tag $GITHUB_REF_NAME != v$version"; exit 1; }
 
       - name: Build
         run: |

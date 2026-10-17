@@ -1,9 +1,10 @@
 name: CI
 
 on:
-  pull_request:
+  # 1 人開発の private リポジトリなので、PR 用の起動は重ねず push だけで動かす
+  # （PR の検査欄には同じコミットの結果が出る）
   push:
-    branches: [main]
+    branches: ["**"]
 
 jobs:
   linux:
