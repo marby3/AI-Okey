@@ -1,8 +1,10 @@
 target
 build
-scripts/*.exe
 logs/*
 .idea
+__pycache__/
+.pytest_cache/
+.venv/
 
 *.gguf
 *.dll

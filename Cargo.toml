@@ -1,11 +1,16 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/client",
-  "crates/server",
-  "crates/shared",
-  "crates/ui",
-  "crates/macros",
-  "crates/launcher",
-  "frontend/src-tauri"
+  "crates/aiokey-ipc",
+  "crates/aiokey-server",
+  "crates/aiokey-launcher",
+  "crates/aiokey-macros",
+  "crates/aiokey-tsf",
+  "crates/aiokey-ui",
 ]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/marby3/AI-Okey"

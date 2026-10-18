@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  # 1 人開発の private リポジトリなので、PR 用の起動は重ねず push だけで動かす
+  # （PR の検査欄には同じコミットの結果が出る）
+  push:
+    branches: ["**"]
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Test portable crates
+        run: cargo test-portable
+      - uses: astral-sh/setup-uv@v6
+      - name: Repository layout tests
+        run: uv run --no-project --python 3.12 --with pytest==8.4.2 pytest tests/repo -q
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Rust toolchain
+        run: |
+          rustup show
+          rustup target add i686-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - name: Build (x64)
+        run: cargo build --workspace
+      - name: Build TSF (x86)
+        run: cargo build -p aiokey-tsf --target i686-pc-windows-msvc
+      - name: Test server
+        run: cargo test -p aiokey-server

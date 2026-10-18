@@ -1,0 +1,23 @@
+[package]
+name = "aiokey-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.95"
+tao = "0.31.0"
+wry = "0.47.2"
+tokio = { version = "1.42.0", features = ["full"] }
+tonic = "0.12.3"
+aiokey-ipc = { path = "../aiokey-ipc" }
+aiokey-server = { path = "../aiokey-server" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dependencies.windows]
+version = "0.58.0"
+features = [
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Environment"
+]

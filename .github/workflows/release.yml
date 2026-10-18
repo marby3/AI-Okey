@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Rust toolchain
+        run: |
+          rustup show
+          rustup target add i686-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check tag matches workspace version
+        shell: bash
+        run: |
+          version=$(grep -m1 '^version = ' Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+          # v0.1.0-rc.1 のようなプレリリースは、接尾辞を除いて比べる
+          tag="${GITHUB_REF_NAME%%-*}"
+          test "v$version" = "$tag" || { echo "tag $GITHUB_REF_NAME != v$version"; exit 1; }
+
+      - name: Build
+        run: |
+          cargo build --release -p aiokey-tsf -p aiokey-server -p aiokey-ui -p aiokey-launcher
+          cargo build --release -p aiokey-tsf --target i686-pc-windows-msvc
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $out = "aiokey-$env:GITHUB_REF_NAME-windows"
+          New-Item -ItemType Directory -Force "$out/x86" | Out-Null
+          Copy-Item target/release/aiokey.dll, target/release/aiokey-server.exe, target/release/aiokey-ui.exe, target/release/aiokey-launcher.exe $out
+          Copy-Item target/i686-pc-windows-msvc/release/aiokey.dll "$out/x86"
+          Copy-Item LICENSE, NOTICE $out
+          Compress-Archive -Path $out -DestinationPath "$out.zip"
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # v1.0.0（実機で打てる最初の版）より前と、-rc などの付いた版はプレリリースにする
+          prerelease=""
+          case "$GITHUB_REF_NAME" in v0.*|*-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" "aiokey-$GITHUB_REF_NAME-windows.zip" \
+            --title "AI-O Key $GITHUB_REF_NAME" --generate-notes $prerelease
