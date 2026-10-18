@@ -4,7 +4,10 @@ use aiokey_engine::input::{parse, Unit, SEPARATOR};
 use aiokey_engine::skeleton::skeletonize;
 
 fn consonant(letter: char) -> Unit {
-    Unit::Consonant { letter, vowel: None }
+    Unit::Consonant {
+        letter,
+        vowel: None,
+    }
 }
 
 #[test]
@@ -46,7 +49,10 @@ fn provisional_rules_are_applied() {
         assert_eq!(skeletonize(kana), expected, "{kana}");
     }
     // ひらがなとカタカナは同じ結果になる
-    assert_eq!(skeletonize("はたしてほんとうに"), skeletonize("ハタシテホントウニ"));
+    assert_eq!(
+        skeletonize("はたしてほんとうに"),
+        skeletonize("ハタシテホントウニ")
+    );
 }
 
 #[test]
@@ -54,7 +60,12 @@ fn consonant_only_input_is_split_into_units() {
     let paths = parse("htst").paths();
     assert_eq!(
         paths,
-        vec![vec![consonant('h'), consonant('t'), consonant('s'), consonant('t')]]
+        vec![vec![
+            consonant('h'),
+            consonant('t'),
+            consonant('s'),
+            consonant('t')
+        ]]
     );
 }
 
@@ -65,7 +76,10 @@ fn consonant_followed_by_vowel_has_both_interpretations() {
     assert_eq!(
         paths,
         vec![
-            vec![Unit::Consonant { letter: 'k', vowel: Some('a') }],
+            vec![Unit::Consonant {
+                letter: 'k',
+                vowel: Some('a')
+            }],
             vec![consonant('k'), Unit::Vowel('a')],
         ]
     );

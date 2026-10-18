@@ -1,0 +1,19 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "aiokey"
+description = "AI-O Key のデータ生成・評価・学習（変換エンジンは Rust の aiokey-engine を使う）"
+requires-python = ">=3.12"
+license = "MIT"
+dynamic = ["version"]
+
+[dependency-groups]
+dev = ["pytest==8.4.2"]
+
+[tool.maturin]
+manifest-path = "../crates/aiokey-py/Cargo.toml"
+module-name = "aiokey._engine"
+python-source = "src"
+features = ["extension-module"]
