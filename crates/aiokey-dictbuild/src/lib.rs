@@ -11,9 +11,17 @@ pub fn build_from_mozc(dir: &Path) -> Result<Vec<u8>, String> {
 }
 
 /// [`build_from_mozc`] と同じで、入れなかった語の数も返す。
+pub fn build_from_mozc_with_report(dir: &Path) -> Result<(Vec<u8>, BuildReport), String> {
+    build_with_english(dir, None)
+}
+
+/// Mozc のデータと英単語の頻度 TSV から辞書を作る。`english` が None なら同梱の英単語を使う。
 ///
 /// 品詞の数は connection_single_column.txt の 1 行目を正とし、id.def の行数と一致するか確かめる。
-pub fn build_from_mozc_with_report(dir: &Path) -> Result<(Vec<u8>, BuildReport), String> {
+pub fn build_with_english(
+    dir: &Path,
+    english: Option<&Path>,
+) -> Result<(Vec<u8>, BuildReport), String> {
     let (pos_count, connection) = read_connection(&dir.join("connection_single_column.txt"))?;
     let pos = read_id_def(&dir.join("id.def"))?;
     if pos.count != pos_count {
@@ -27,7 +35,10 @@ pub fn build_from_mozc_with_report(dir: &Path) -> Result<(Vec<u8>, BuildReport),
         let path = dir.join(format!("dictionary{i:02}.txt"));
         entries.extend(read_dictionary(&path)?);
     }
-    let english = parse_english_tsv(ENGLISH_SEED, "english-seed.tsv")?;
+    let english = match english {
+        Some(path) => read_english_tsv(path)?,
+        None => parse_english_tsv(ENGLISH_SEED, "english-seed.tsv")?,
+    };
     entries.extend(english_entries(&english, pos.unknown));
     build_with_report(entries, &pos, &connection)
 }

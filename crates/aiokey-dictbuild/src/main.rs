@@ -1,29 +1,34 @@
-//! aiokey-dictbuild --mozc <dir> --out <file>
+//! aiokey-dictbuild [--mozc DIR] [--out FILE] [--english TSV]
+//!
+//! `--english` を省くと、ビルダーに同梱した英単語を使う。コーパスから作った TSV（aiokey.datagen の
+//! english.tsv）を渡せば、それに置き換わる。
 //!
 //! Mozc の辞書からスケルトン索引辞書を作り、部分ごとの大きさを表示する。
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use aiokey_dictbuild::build_from_mozc_with_report;
+use aiokey_dictbuild::build_with_english;
 use aiokey_engine::dict::Dictionary;
 
 fn main() -> ExitCode {
     let mut mozc = PathBuf::from("data/mozc");
     let mut out = PathBuf::from("build/aiokey.dic");
+    let mut english: Option<PathBuf> = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match (arg.as_str(), args.next()) {
             ("--mozc", Some(v)) => mozc = v.into(),
             ("--out", Some(v)) => out = v.into(),
+            ("--english", Some(v)) => english = Some(v.into()),
             _ => {
-                eprintln!("usage: aiokey-dictbuild [--mozc DIR] [--out FILE]");
+                eprintln!("usage: aiokey-dictbuild [--mozc DIR] [--out FILE] [--english TSV]");
                 return ExitCode::from(2);
             }
         }
     }
 
-    let (bytes, report) = match build_from_mozc_with_report(&mozc) {
+    let (bytes, report) = match build_with_english(&mozc, english.as_deref()) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: {e}");
