@@ -19,7 +19,8 @@ htsthqtun  →  果たして本当に
 
 | クレート | 役割 |
 |---|---|
-| `aiokey-engine` | 変換エンジン（OS に依存しない）。スケルトン変換、入力パーサー |
+| `aiokey-engine` | 変換エンジン（OS に依存しない）。スケルトン変換、入力パーサー、スケルトン索引辞書 |
+| `aiokey-dictbuild` | Mozc の辞書からスケルトン索引辞書（`aiokey.dic`）を作る |
 | `aiokey-py` | aiokey-engine を Python から呼ぶ拡張モジュール（`python/` の `aiokey` パッケージ） |
 | `aiokey-tsf` | Windows の TSF テキストサービス（`aiokey.dll`） |
 | `aiokey-server` | 変換サーバー。Windows は名前付きパイプ、unix は `$XDG_RUNTIME_DIR/aiokey_server.sock` で待ち受ける（`XDG_RUNTIME_DIR` がないと起動しない） |
@@ -35,6 +36,12 @@ htsthqtun  →  果たして本当に
 ```sh
 # イメージを作る
 docker compose build dev
+
+# Mozc の辞書データを取得する（data/mozc。テストと辞書づくりに使う）
+scripts/fetch-mozc.sh
+
+# スケルトン索引辞書を作る
+docker compose run --rm dev cargo run --release -p aiokey-dictbuild -- --out target/aiokey.dic
 
 # OS に依存しないクレートのテスト
 docker compose run --rm dev cargo test-portable

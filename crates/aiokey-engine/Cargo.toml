@@ -4,3 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "AI-O Key の変換エンジン（OS に依存しない）"
+
+[dependencies]
+crc32fast = "1.4"
+memmap2 = "0.9"
+yada = "0.5"

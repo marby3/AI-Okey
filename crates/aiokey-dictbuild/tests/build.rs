@@ -42,7 +42,10 @@ fn lookup_htst_returns_hatashite() {
             .iter()
             .any(|e| e.surface == "果たして" && e.reading == "はたして"),
         "{:?}",
-        entries.iter().map(|e| e.surface.to_string()).collect::<Vec<_>>()
+        entries
+            .iter()
+            .map(|e| e.surface.to_string())
+            .collect::<Vec<_>>()
     );
 }
 
@@ -68,7 +71,13 @@ fn connection_cost_matches_mozc_source() {
     let (n, costs) = read_connection(&mozc_dir().join("connection_single_column.txt")).unwrap();
     assert_eq!(dict.pos_count(), n);
     // 先頭・末尾と、はたして（品詞 12）の前後をいくつか比べる
-    for (rid, lid) in [(0u16, 1u16), (12, 12), (12, 1851), (1851, 12), (n - 1, n - 1)] {
+    for (rid, lid) in [
+        (0u16, 1u16),
+        (12, 12),
+        (12, 1851),
+        (1851, 12),
+        (n - 1, n - 1),
+    ] {
         let expected = costs[rid as usize * n as usize + lid as usize];
         assert_eq!(dict.cost(rid, lid), expected, "rid={rid} lid={lid}");
     }
@@ -81,7 +90,11 @@ fn dictionary_is_opened_with_mmap_and_size_is_reported() {
     assert!(dict.is_mmapped());
     assert_eq!(dict.size_bytes(), file_size);
     // サイズは記録用に出しておく（暫定目標 75MB 以下）
-    println!("dictionary size: {} bytes ({:.1} MB)", file_size, file_size as f64 / 1e6);
+    println!(
+        "dictionary size: {} bytes ({:.1} MB)",
+        file_size,
+        file_size as f64 / 1e6
+    );
 }
 
 #[test]
