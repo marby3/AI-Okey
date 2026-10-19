@@ -1,0 +1,6 @@
+[package]
+name = "aiokey-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "AI-O Key の変換エンジン（OS に依存しない）"

@@ -19,6 +19,8 @@ htsthqtun  →  果たして本当に
 
 | クレート | 役割 |
 |---|---|
+| `aiokey-engine` | 変換エンジン（OS に依存しない）。スケルトン変換、入力パーサー |
+| `aiokey-py` | aiokey-engine を Python から呼ぶ拡張モジュール（`python/` の `aiokey` パッケージ） |
 | `aiokey-tsf` | Windows の TSF テキストサービス（`aiokey.dll`） |
 | `aiokey-server` | 変換サーバー。Windows は名前付きパイプ、unix は `$XDG_RUNTIME_DIR/aiokey_server.sock` で待ち受ける（`XDG_RUNTIME_DIR` がないと起動しない） |
 | `aiokey-ui` | 候補ウィンドウとモード表示 |
@@ -36,6 +38,9 @@ docker compose build dev
 
 # OS に依存しないクレートのテスト
 docker compose run --rm dev cargo test-portable
+
+# Python パッケージ（データ生成・評価用）のテスト
+docker compose run --rm dev sh -c "cd python && uv run pytest"
 
 # Windows 向けバイナリのクロスビルド（build/ に出力）
 docker compose run --rm dev scripts/build-windows.sh

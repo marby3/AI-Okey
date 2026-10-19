@@ -1,0 +1,18 @@
+[package]
+name = "aiokey-py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "aiokey-engine を Python から呼ぶための拡張モジュール（データ生成・評価用）"
+
+[lib]
+name = "_engine"
+crate-type = ["cdylib"]
+
+[dependencies]
+aiokey-engine = { path = "../aiokey-engine" }
+pyo3 = { version = "0.25", features = ["abi3-py312"] }
+
+[features]
+# maturin でビルドするときだけ有効にする（cargo test では Python に動的リンクしないため）
+extension-module = ["pyo3/extension-module"]

@@ -21,6 +21,9 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: Repository layout tests
         run: uv run --no-project --python 3.12 --with pytest==8.4.2 pytest tests/repo -q
+      - name: Python tests (aiokey package)
+        working-directory: python
+        run: uv run --python 3.12 pytest -q
 
   windows:
     runs-on: windows-latest
@@ -35,7 +38,7 @@ jobs:
           rustup target add i686-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
       - name: Build (x64)
-        run: cargo build --workspace
+        run: cargo build --workspace --exclude aiokey-py
       - name: Build TSF (x86)
         run: cargo build -p aiokey-tsf --target i686-pc-windows-msvc
       - name: Test server

@@ -17,6 +17,9 @@ services:
       CARGO_BUILD_JOBS: ${AIOKEY_JOBS:-2}
       # aiokey-server（unix）はソケットを XDG_RUNTIME_DIR にだけ作る。コンテナには既定でないので用意する
       XDG_RUNTIME_DIR: /tmp
+      # Python の仮想環境は Windows 側のフォルダではなく、ボリューム（target/）に置く（速さのため）
+      UV_PROJECT_ENVIRONMENT: /work/target/python-venv
+      UV_LINK_MODE: copy
     volumes:
       - .:/work
       - cargo-registry:/opt/cargo/registry
