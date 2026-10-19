@@ -5,6 +5,7 @@
 //! 段1のラティスは、この辺をそのままたどって辞書を引く。
 
 /// Shift+Space で入れる空白。入力列ではこの文字で受け取り、区切りとして扱う。
+/// 変換中の Space は変換に使うので入力列には入らず、入力列に現れる空白は Shift+Space だけになる。
 pub const SEPARATOR: char = ' ';
 
 /// 英語指定の始まり（SKK の略語入力と同じ考え方）。
@@ -58,6 +59,16 @@ pub fn parse(input: &str) -> InputLattice {
         let c = chars[i];
         let lower = c.to_ascii_lowercase();
 
+        if c == SEPARATOR {
+            edges.push(Edge {
+                start: i,
+                end: i + 1,
+                unit: Unit::Separator,
+            });
+            i += 1;
+            continue;
+        }
+
         if c == ENGLISH_PREFIX {
             // 次の区切り（または末尾）までを英単語として扱う
             let end = chars[i + 1..]
@@ -72,15 +83,14 @@ pub fn parse(input: &str) -> InputLattice {
             };
             edges.push(Edge {
                 start: i,
-                end: end.max(i + 1),
+                end,
                 unit,
             });
-            i = end.max(i + 1);
+            i = end;
             continue;
         }
 
         let unit = match lower {
-            _ if c == SEPARATOR => Unit::Separator,
             'q' => Unit::Hatsuon,
             'x' => Unit::Sokuon,
             '-' => Unit::Long,
