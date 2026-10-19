@@ -84,3 +84,21 @@ fn to_hiragana(c: char) -> char {
         _ => c,
     }
 }
+
+/// かなの母音（段）。ん・っ・ー などは `None`。
+const VOWEL_ROWS: &[(char, &str)] = &[
+    ('a', "あかさたなはまやらわがざだばぱぁゃゎゕ"),
+    ('i', "いきしちにひみりぎじぢびぴぃゐ"),
+    ('u', "うくすつぬふむゆるぐずづぶぷぅゅゔ"),
+    ('e', "えけせてねへめれげぜでべぺぇゑゖ"),
+    ('o', "おこそとのほもよろをごぞどぼぽぉょ"),
+];
+
+/// かな 1 文字の母音。
+pub(crate) fn vowel_of(kana: char) -> Option<char> {
+    let h = to_hiragana(kana);
+    VOWEL_ROWS
+        .iter()
+        .find(|(_, row)| row.contains(h))
+        .map(|&(v, _)| v)
+}

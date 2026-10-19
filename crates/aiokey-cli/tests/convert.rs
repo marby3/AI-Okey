@@ -45,7 +45,11 @@ fn cli_convert_returns_hatashite_hontou_ni() {
         .arg(path)
         .output()
         .unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8(out.stdout).unwrap();
     let lines: Vec<&str> = stdout.lines().collect();
     assert!(lines.len() <= 32, "{} lines", lines.len());
@@ -76,9 +80,18 @@ fn candidates_carry_reading_cost_and_bunsetsu_matching_the_input() {
     let input = "htsthqtun";
     let len = input.chars().count();
     for c in convert(dict, input, &Options::default()) {
-        assert_eq!(skeletonize(&c.reading), input, "{} / {}", c.surface, c.reading);
         assert_eq!(
-            c.words.iter().map(|w| w.surface.as_str()).collect::<String>(),
+            skeletonize(&c.reading),
+            input,
+            "{} / {}",
+            c.surface,
+            c.reading
+        );
+        assert_eq!(
+            c.words
+                .iter()
+                .map(|w| w.surface.as_str())
+                .collect::<String>(),
             c.surface
         );
         // 文節は入力の先頭から末尾まで、すき間なく並ぶ
@@ -115,7 +128,11 @@ fn bench_reports_p50_and_p95() {
         .arg(path)
         .output()
         .unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(stdout.contains("p50") && stdout.contains("p95"), "{stdout}");
 }

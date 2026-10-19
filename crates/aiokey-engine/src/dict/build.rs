@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use super::format::{
     checksum, words_per_row, Section, ENTRY_SIZE, FLAG_KATAKANA, FLAG_SAME_AS_READING, HEADER_SIZE,
-    MAGIC, SECTION_COUNT, VERSION,
+    MAGIC, POS_FUNCTION_WORD, SECTION_COUNT, VERSION,
 };
 use super::{kana, to_katakana};
 use crate::skeleton::skeletonize;
@@ -40,6 +40,17 @@ impl Pool {
     }
 }
 
+/// 品詞（文脈 ID）の情報。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PosTable {
+    /// 品詞の数（連接コストの行と列の数）
+    pub count: u16,
+    /// 未知語に使う品詞
+    pub unknown: u16,
+    /// 品詞ごとに、付属語（助詞・助動詞・接尾辞など）かどうか
+    pub function_word: Vec<bool>,
+}
+
 /// 辞書に入れなかった語の数（理由ごと）。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BuildReport {
@@ -56,22 +67,26 @@ pub struct BuildReport {
 /// [`build_with_report`] と同じだが、入れなかった語の数は返さない。
 pub fn build(
     entries: impl IntoIterator<Item = SourceEntry>,
-    pos_count: u16,
+    pos: &PosTable,
     connection: &[i16],
 ) -> Result<Vec<u8>, String> {
-    build_with_report(entries, pos_count, connection).map(|(bytes, _)| bytes)
+    build_with_report(entries, pos, connection).map(|(bytes, _)| bytes)
 }
 
-/// 語の一覧と連接コスト（`pos_count` × `pos_count`、行が rid）から、辞書ファイルの中身を作る。
+/// 語の一覧、品詞の情報、連接コスト（品詞の数 × 品詞の数、行が rid）から、辞書ファイルの中身を作る。
 ///
 /// 読みをスケルトンにしたものがキーになる。スケルトンが空になる語、文字列が長すぎる語、
 /// 文脈 ID が `pos_count` 以上の語は入れず、その数を [`BuildReport`] で返す。
 pub fn build_with_report(
     entries: impl IntoIterator<Item = SourceEntry>,
-    pos_count: u16,
+    pos: &PosTable,
     connection: &[i16],
 ) -> Result<(Vec<u8>, BuildReport), String> {
+    let pos_count = pos.count;
     let n = pos_count as usize;
+    if pos.unknown >= pos_count || pos.function_word.len() != n {
+        return Err("the pos table does not match the pos count".to_string());
+    }
     if n == 0 || connection.len() != n * n {
         return Err(format!(
             "connection has {} costs, expected {}",
@@ -158,6 +173,11 @@ pub fn build_with_report(
         .iter()
         .flat_map(|(l, r)| [l.to_le_bytes(), r.to_le_bytes()].concat())
         .collect();
+    bodies[Section::PosFlags as usize] = pos
+        .function_word
+        .iter()
+        .map(|&f| if f { POS_FUNCTION_WORD } else { 0 })
+        .collect();
     let [modes, bits, ranks, values] = compress_connection(pos_count, connection);
     bodies[Section::ConnModes as usize] = modes;
     bodies[Section::ConnBits as usize] = bits;
@@ -168,6 +188,7 @@ pub fn build_with_report(
     out[0..8].copy_from_slice(MAGIC);
     out[8..12].copy_from_slice(&VERSION.to_le_bytes());
     out[12..14].copy_from_slice(&pos_count.to_le_bytes());
+    out[14..16].copy_from_slice(&pos.unknown.to_le_bytes());
     for (i, body) in bodies.iter().enumerate() {
         // 各部分を 8 バイト境界から始める
         while !out.len().is_multiple_of(8) {

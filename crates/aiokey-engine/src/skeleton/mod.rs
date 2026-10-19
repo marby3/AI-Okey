@@ -18,3 +18,23 @@ pub fn skeletonize(reading: &str) -> String {
     }
     out
 }
+
+/// 読みを、スケルトンの 1 文字とそのかなの母音の組に分ける。並びと長さは [`skeletonize`] の結果と同じ。
+///
+/// 小書きの母音（ァ など、スケルトンには出ない）は、前の文字の母音を置き換える（ファ → (h, a)）。
+/// 混在入力で打った母音と照らし合わせるのに使う。
+pub fn units(reading: &str) -> Vec<(char, Option<char>)> {
+    let mut out: Vec<(char, Option<char>)> = Vec::with_capacity(reading.len() / 3);
+    for c in reading.chars() {
+        match rules::lookup(c) {
+            Some(Mapping::Letter(letter)) => out.push((letter, rules::vowel_of(c))),
+            Some(Mapping::Drop) => {
+                if let Some(last) = out.last_mut() {
+                    last.1 = rules::vowel_of(c);
+                }
+            }
+            None => out.push((c, None)),
+        }
+    }
+    out
+}
