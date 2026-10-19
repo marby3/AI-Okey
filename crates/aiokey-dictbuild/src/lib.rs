@@ -5,7 +5,7 @@ use std::path::Path;
 
 use aiokey_engine::dict::{build_with_report, BuildReport, PosTable, SourceEntry};
 
-/// `dir` にある Mozc の辞書（dictionary00〜09.txt）と接続コストから、辞書ファイルの中身を作る。
+/// `dir` にある Mozc の辞書（dictionary00〜09.txt）と接続コスト、同梱の英単語から、辞書ファイルの中身を作る。
 pub fn build_from_mozc(dir: &Path) -> Result<Vec<u8>, String> {
     build_from_mozc_with_report(dir).map(|(bytes, _)| bytes)
 }
@@ -27,6 +27,8 @@ pub fn build_from_mozc_with_report(dir: &Path) -> Result<(Vec<u8>, BuildReport),
         let path = dir.join(format!("dictionary{i:02}.txt"));
         entries.extend(read_dictionary(&path)?);
     }
+    let english = parse_english_tsv(ENGLISH_SEED, "english-seed.tsv")?;
+    entries.extend(english_entries(&english, pos.unknown));
     build_with_report(entries, &pos, &connection)
 }
 
@@ -125,4 +127,56 @@ pub fn read_connection(path: &Path) -> Result<(u16, Vec<i16>), String> {
         ));
     }
     Ok((n, costs))
+}
+
+/// ビルダーに同梱した英単語の頻度（#6 でコーパスから作るまでのつなぎ）。
+const ENGLISH_SEED: &str = include_str!("../data/english-seed.tsv");
+
+/// 英単語の頻度 TSV を読む。1 行は「つづり<TAB>頻度」。空行と `#` で始まる行は読み飛ばす。
+pub fn read_english_tsv(path: &Path) -> Result<Vec<(String, u32)>, String> {
+    let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    parse_english_tsv(&text, &path.display().to_string())
+}
+
+fn parse_english_tsv(text: &str, name: &str) -> Result<Vec<(String, u32)>, String> {
+    text.lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+        .map(|(no, line)| {
+            let bad = || format!("{name}:{}: expected \"word<TAB>frequency\": {line}", no + 1);
+            let (word, freq) = line.split_once('\t').ok_or_else(bad)?;
+            let freq: u32 = freq.trim().parse().map_err(|_| bad())?;
+            let word = word.trim();
+            if word.is_empty() {
+                return Err(bad());
+            }
+            Ok((word.to_string(), freq))
+        })
+        .collect()
+}
+
+/// 英単語を辞書の語にする。見出し（読み）は小文字のつづりで、表記はつづりのまま。
+///
+/// 入力パーサーは q・x・- もスケルトンの文字として読むので、英字を素直にたどった道のキーは
+/// つづりと同じになり、英単語は日本語の語と同じ辞書・同じ検索で見つかる。
+/// 英字と `-` だけの語を入れる（ほかの文字を含む語は、入力からたどり着けないので入れない）。
+/// コストは頻度が高いほど小さくする。品詞は未知語と同じ（名詞,一般）。
+pub fn english_entries(words: &[(String, u32)], pos: u16) -> Vec<SourceEntry> {
+    words
+        .iter()
+        .filter(|(w, _)| w.chars().all(|c| c.is_ascii_alphabetic() || c == '-'))
+        .map(|(word, freq)| SourceEntry {
+            reading: word.to_ascii_lowercase(),
+            surface: word.clone(),
+            lid: pos,
+            rid: pos,
+            cost: english_cost(*freq),
+        })
+        .collect()
+}
+
+/// 頻度から単語コストを決める。Mozc の語のコスト（おおむね 3000〜9000）の範囲に収める。
+fn english_cost(freq: u32) -> i16 {
+    let cost = 8000.0 - 600.0 * (freq.max(1) as f64).ln();
+    cost.clamp(3000.0, 9000.0) as i16
 }

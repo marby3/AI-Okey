@@ -104,7 +104,52 @@ pub fn convert(dict: &Dictionary, input: &str, options: &Options) -> Vec<Candida
         return Vec::new();
     }
     let nodes = build_nodes(dict, &lattice);
-    search(dict, &nodes, lattice.len(), options.k)
+    let mut candidates = search(dict, &nodes, lattice.len(), options.k);
+    add_raw_input(input, lattice.len(), &mut candidates, options.k);
+    candidates
+}
+
+/// 英語指定の印の `/` を取り除く。入力パーサーと同じく、英単語の外にある `/` だけが印で、
+/// 英単語の中（次の区切りまで）の `/` はそのまま残す。
+fn without_english_prefixes(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut in_english = false;
+    for c in input.chars() {
+        if c == crate::input::ENGLISH_PREFIX && !in_english {
+            in_english = true;
+            continue;
+        }
+        if c == crate::input::SEPARATOR {
+            in_english = false;
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// 入力した文字列そのもの（英語指定の印の `/` は除く）を、必ず候補に入れる。
+///
+/// 候補がすでに K 件あれば最後の 1 件と入れ替える。並びが崩れないよう、コストは
+/// ほかの候補のいちばん大きいコスト以上にする。
+fn add_raw_input(input: &str, len: usize, candidates: &mut Vec<Candidate>, k: usize) {
+    let raw = without_english_prefixes(input);
+    if k == 0 || raw.is_empty() || candidates.iter().any(|c| c.surface == raw) {
+        return;
+    }
+    if candidates.len() >= k {
+        candidates.truncate(k.saturating_sub(1));
+    }
+    let cost = candidates.iter().map(|c| c.cost).max().unwrap_or(0);
+    candidates.push(Candidate {
+        surface: raw.clone(),
+        reading: raw.clone(),
+        cost,
+        words: vec![Word {
+            surface: raw.clone(),
+            reading: raw,
+        }],
+        bunsetsu: std::iter::once(0..len).collect(),
+    });
 }
 
 /// 入力ラティスの 1 本の道（1 語ぶん）。
