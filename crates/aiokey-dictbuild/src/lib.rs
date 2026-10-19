@@ -141,7 +141,7 @@ pub fn read_english_tsv(path: &Path) -> Result<Vec<(String, u32)>, String> {
 fn parse_english_tsv(text: &str, name: &str) -> Result<Vec<(String, u32)>, String> {
     text.lines()
         .enumerate()
-        .filter(|(_, l)| !l.trim().is_empty() && !l.starts_with('#'))
+        .filter(|(_, l)| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
         .map(|(no, line)| {
             let bad = || format!("{name}:{}: expected \"word<TAB>frequency\": {line}", no + 1);
             let (word, freq) = line.split_once('\t').ok_or_else(bad)?;
@@ -175,8 +175,8 @@ pub fn english_entries(words: &[(String, u32)], pos: u16) -> Vec<SourceEntry> {
         .collect()
 }
 
-/// 頻度から単語コストを決める（Mozc の語のコストはおおむね 3000〜9000）。
+/// 頻度から単語コストを決める。Mozc の語のコスト（おおむね 3000〜9000）の範囲に収める。
 fn english_cost(freq: u32) -> i16 {
     let cost = 8000.0 - 600.0 * (freq.max(1) as f64).ln();
-    cost.clamp(2500.0, 9000.0) as i16
+    cost.clamp(3000.0, 9000.0) as i16
 }
