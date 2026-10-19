@@ -19,8 +19,10 @@ verify_only=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --verify-only) verify_only=1 ;;
-    --dir) dir="$2"; shift ;;
-    --sums) sums="$2"; shift ;;
+    --dir|--sums)
+      [ $# -ge 2 ] || { echo "$1 needs a value" >&2; exit 2; }
+      if [ "$1" = --dir ]; then dir="$2"; else sums="$2"; fi
+      shift ;;
     -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac

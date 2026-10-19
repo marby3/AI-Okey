@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use aiokey_dictbuild::build_from_mozc;
+use aiokey_dictbuild::build_from_mozc_with_report;
 use aiokey_engine::dict::Dictionary;
 
 fn main() -> ExitCode {
@@ -23,8 +23,8 @@ fn main() -> ExitCode {
         }
     }
 
-    let bytes = match build_from_mozc(&mozc) {
-        Ok(b) => b,
+    let (bytes, report) = match build_from_mozc_with_report(&mozc) {
+        Ok(r) => r,
         Err(e) => {
             eprintln!("error: {e}");
             return ExitCode::FAILURE;
@@ -45,8 +45,15 @@ fn main() -> ExitCode {
                 out.display(),
                 dict.size_bytes() as f64 / 1e6
             );
+            println!(
+                "  entries {} / skipped: empty skeleton {}, too long {}, bad context id {}",
+                report.entries,
+                report.skipped_empty_skeleton,
+                report.skipped_too_long,
+                report.skipped_bad_context_id
+            );
             for (name, len) in dict.section_sizes() {
-                println!("  {name:<11} {:>8.1} MB", len as f64 / 1e6);
+                println!("  {name:<11} {:>10.1} KB", len as f64 / 1e3);
             }
             ExitCode::SUCCESS
         }

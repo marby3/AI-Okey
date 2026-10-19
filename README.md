@@ -41,7 +41,7 @@ docker compose build dev
 scripts/fetch-mozc.sh
 
 # スケルトン索引辞書を作る
-docker compose run --rm dev cargo run --release -p aiokey-dictbuild -- --out target/aiokey.dic
+docker compose run --rm dev cargo run --release -p aiokey-dictbuild   # build/aiokey.dic に出力
 
 # OS に依存しないクレートのテスト
 docker compose run --rm dev cargo test-portable

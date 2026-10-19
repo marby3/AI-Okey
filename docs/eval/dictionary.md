@@ -14,8 +14,10 @@ Mozc の dictionary_oss（コミット `0136c357`）から作った `aiokey.dic`
 | entries | 15.4 MB | 語の表（12 バイト × 約 128 万語） |
 | readings | 5.5 MB | 読み（ひらがなを 1 文字 1 バイトで符号化） |
 | strings | 9.2 MB | 表記（読みと同じか、読みのカタカナなら持たない） |
-| pos_pairs | 0.0 MB | (lid, rid) の組 11,370 種 |
+| pos_pairs | 45 KB | (lid, rid) の組 11,370 種 |
 | conn_* | 3.1 MB | 連接コスト（行ごとの最頻値と、それ以外の値） |
+
+入れた語は 1,284,980 語。入れなかった語は、スケルトンが空になる語（読みが記号だけなど）の 7 語だけで、長すぎる語と文脈 ID が範囲外の語は 0 語。
 
 詰める前（素直な形式）は 68.8MB だった。効いたのは次の 4 つ。
 
@@ -34,7 +36,7 @@ Mozc の dictionary_oss（コミット `0136c357`）から作った `aiokey.dic`
 
 ## 速さ
 
-`cargo run --release -p aiokey-dictbuild --example open_bench -- target/aiokey.dic`
+`cargo run --release -p aiokey-dictbuild --example open_bench -- build/aiokey.dic`
 
 | 項目 | 結果 |
 |---|---|

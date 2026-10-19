@@ -12,7 +12,7 @@ use std::fmt;
 use std::ops::Deref;
 use std::path::Path;
 
-pub use build::{build, SourceEntry};
+pub use build::{build, build_with_report, BuildReport, SourceEntry};
 use format::{
     item, read_u16, read_u32, read_u64, words_per_row, Header, Section, ENTRY_SIZE, FLAG_KATAKANA,
     FLAG_MASK, FLAG_SAME_AS_READING, SECTION_NAMES,
@@ -149,7 +149,7 @@ impl Dictionary {
         matches!(self.data, Data::Mmap(_))
     }
 
-    /// 辞書ファイルの大きさ（バイト）。
+    /// 辞書のデータの大きさ（バイト）。ファイルから開いたならファイルの大きさ。
     pub fn size_bytes(&self) -> usize {
         self.data.len()
     }

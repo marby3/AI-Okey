@@ -6,7 +6,7 @@
 //!   8  version      u32
 //!  12  pos_count    u16  品詞（文脈 ID）の数 N
 //!  14  reserved     u16
-//!  16  crc32        u32  ヘッダーより後ろ全体の CRC32
+//!  16  crc32        u32  この欄（0 とみなす）を含むファイル全体の CRC32
 //!  20  reserved     u32
 //!  24  sections     (offset u32, len u32) × 部分の数 … 下の順
 //!
@@ -99,7 +99,21 @@ pub(crate) fn item(pool: &[u8], at: usize) -> Option<&[u8]> {
     pool.get(at + 1..at + 1 + len)
 }
 
-/// ヘッダーと各部分を確かめる。ここを通ったデータは、読む側で範囲外を指さない。
+/// ファイル全体の CRC32。CRC の欄そのもの（16..20）は 0 とみなす。
+pub(crate) fn checksum(data: &[u8]) -> u32 {
+    let mut hasher = crc32fast::Hasher::new();
+    hasher.update(&data[..16]);
+    hasher.update(&[0; 4]);
+    hasher.update(&data[20..]);
+    hasher.finalize()
+}
+
+/// ヘッダーと各部分を確かめる。
+///
+/// 偶然の破損（書き込みの途中で切れた、ビットが化けた）は CRC32 で見つける。そのうえで、
+/// トライ以外の部分は、読む側が範囲外を指さないことまで確かめる。トライ（yada）の中身は
+/// 確かめきれないので、辞書はインストール先に置く信頼できるファイルとして扱う
+/// （意図的な書き換えからは、DLL と同じく OS のファイルの権限で守る）。
 pub(crate) fn validate(data: &[u8]) -> Result<Header, DictError> {
     if data.len() < HEADER_SIZE || &data[0..8] != MAGIC {
         return Err(err("not an AI-O Key dictionary"));
@@ -113,7 +127,7 @@ pub(crate) fn validate(data: &[u8]) -> Result<Header, DictError> {
         return Err(err("pos_count is 0"));
     }
     let crc = u32::from_le_bytes(data[16..20].try_into().unwrap());
-    if crc32fast::hash(&data[HEADER_SIZE..]) != crc {
+    if checksum(data) != crc {
         return Err(err(
             "checksum mismatch (the file is corrupted or truncated)",
         ));
@@ -136,6 +150,11 @@ pub(crate) fn validate(data: &[u8]) -> Result<Header, DictError> {
         let (offset, len) = header.sections[s as usize];
         &data[offset as usize..(offset + len) as usize]
     };
+
+    let trie = get(Section::Trie);
+    if trie.len() < 4 || trie.len() % 4 != 0 {
+        return Err(err("trie is not a list of u32 units"));
+    }
 
     validate_connection(pos_count, &get)?;
 

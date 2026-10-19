@@ -1,6 +1,6 @@
 //! 辞書を開く時間と、1 語を引く時間を測る。
 //!
-//!     cargo run --release -p aiokey-dictbuild --example open_bench -- target/aiokey.dic
+//!     cargo run --release -p aiokey-dictbuild --example open_bench -- build/aiokey.dic
 
 fn main() {
     let path = std::path::PathBuf::from(std::env::args().nth(1).unwrap());

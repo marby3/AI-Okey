@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 
 use super::format::{
-    words_per_row, Section, ENTRY_SIZE, FLAG_KATAKANA, FLAG_SAME_AS_READING, HEADER_SIZE, MAGIC,
-    SECTION_COUNT, VERSION,
+    checksum, words_per_row, Section, ENTRY_SIZE, FLAG_KATAKANA, FLAG_SAME_AS_READING, HEADER_SIZE,
+    MAGIC, SECTION_COUNT, VERSION,
 };
 use super::{kana, to_katakana};
 use crate::skeleton::skeletonize;
@@ -40,15 +40,37 @@ impl Pool {
     }
 }
 
-/// 語の一覧と連接コスト（`pos_count` × `pos_count`、行が rid）から、辞書ファイルの中身を作る。
-///
-/// 読みをスケルトンにしたものがキーになる。スケルトンが空になる語、文字列が長すぎる語、
-/// 文脈 ID が `pos_count` 以上の語は入れない。
+/// 辞書に入れなかった語の数（理由ごと）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BuildReport {
+    /// 入れた語（同じ語は 1 つに数える）
+    pub entries: usize,
+    /// スケルトンが空になる語（読みが記号だけ、など）
+    pub skipped_empty_skeleton: usize,
+    /// 読みか表記が 255 バイトを超える語
+    pub skipped_too_long: usize,
+    /// 文脈 ID が品詞の数以上の語
+    pub skipped_bad_context_id: usize,
+}
+
+/// [`build_with_report`] と同じだが、入れなかった語の数は返さない。
 pub fn build(
     entries: impl IntoIterator<Item = SourceEntry>,
     pos_count: u16,
     connection: &[i16],
 ) -> Result<Vec<u8>, String> {
+    build_with_report(entries, pos_count, connection).map(|(bytes, _)| bytes)
+}
+
+/// 語の一覧と連接コスト（`pos_count` × `pos_count`、行が rid）から、辞書ファイルの中身を作る。
+///
+/// 読みをスケルトンにしたものがキーになる。スケルトンが空になる語、文字列が長すぎる語、
+/// 文脈 ID が `pos_count` 以上の語は入れず、その数を [`BuildReport`] で返す。
+pub fn build_with_report(
+    entries: impl IntoIterator<Item = SourceEntry>,
+    pos_count: u16,
+    connection: &[i16],
+) -> Result<(Vec<u8>, BuildReport), String> {
     let n = pos_count as usize;
     if n == 0 || connection.len() != n * n {
         return Err(format!(
@@ -58,22 +80,29 @@ pub fn build(
         ));
     }
 
-    // (スケルトン, 語) に並べ、まったく同じ語は 1 つにする
-    let mut keyed: Vec<(String, SourceEntry)> = entries
-        .into_iter()
-        .filter(|e| e.surface.len() <= 255 && kana::encode(&e.reading).len() <= 255)
-        .filter(|e| (e.lid as usize) < n && (e.rid as usize) < n)
-        .filter_map(|e| {
-            let key = skeletonize(&e.reading);
-            (!key.is_empty() && !key.contains('\0')).then_some((key, e))
-        })
-        .collect();
+    // (スケルトン, 符号化した読み, 語) に並べ、まったく同じ語は 1 つにする
+    let mut report = BuildReport::default();
+    let mut keyed: Vec<(String, Vec<u8>, SourceEntry)> = Vec::new();
+    for e in entries {
+        let encoded = kana::encode(&e.reading);
+        let key = skeletonize(&e.reading);
+        if e.surface.len() > 255 || encoded.len() > 255 {
+            report.skipped_too_long += 1;
+        } else if e.lid as usize >= n || e.rid as usize >= n {
+            report.skipped_bad_context_id += 1;
+        } else if key.is_empty() || key.contains('\0') {
+            report.skipped_empty_skeleton += 1;
+        } else {
+            keyed.push((key, encoded, e));
+        }
+    }
     // キーはバイト順に並べる（yada の求める順。String の順と同じ）
-    keyed.sort_by(|(ka, a), (kb, b)| {
+    keyed.sort_by(|(ka, _, a), (kb, _, b)| {
         (ka, &a.reading, a.cost, &a.surface, a.lid, a.rid)
             .cmp(&(kb, &b.reading, b.cost, &b.surface, b.lid, b.rid))
     });
     keyed.dedup();
+    report.entries = keyed.len();
 
     let mut readings = Pool::default();
     let mut strings = Pool::default();
@@ -83,12 +112,12 @@ pub fn build(
     let mut keys: Vec<(Vec<u8>, u32)> = Vec::new();
     let mut entry_bytes: Vec<u8> = Vec::with_capacity(keyed.len() * ENTRY_SIZE);
 
-    for (i, (key, e)) in keyed.iter().enumerate() {
+    for (i, (key, encoded, e)) in keyed.iter().enumerate() {
         if i == 0 || keyed[i - 1].0 != *key {
             keys.push((key.as_bytes().to_vec(), groups.len() as u32));
             groups.push(i as u32);
         }
-        let reading = readings.add(&kana::encode(&e.reading))?;
+        let reading = readings.add(encoded)?;
         let surface = if e.surface == e.reading {
             FLAG_SAME_AS_READING
         } else if e.surface == to_katakana(&e.reading) {
@@ -150,9 +179,9 @@ pub fn build(
         out[28 + i * 8..32 + i * 8].copy_from_slice(&len.to_le_bytes());
         out.extend_from_slice(body);
     }
-    let crc = crc32fast::hash(&out[HEADER_SIZE..]);
+    let crc = checksum(&out);
     out[16..20].copy_from_slice(&crc.to_le_bytes());
-    Ok(out)
+    Ok((out, report))
 }
 
 /// 連接コストを、行ごとの最頻値と、それと違うセルだけの値に分ける（Mozc と同じ考え方）。
@@ -168,7 +197,8 @@ fn compress_connection(pos_count: u16, connection: &[i16]) -> [Vec<u8>; 4] {
         for &c in row {
             *counts.entry(c).or_default() += 1;
         }
-        // 同数なら小さい値を最頻値にする（毎回同じ結果になるように）
+        // 同数なら小さい値を最頻値にする（毎回同じ結果になるように）。
+        // max_by は大きい方を選ぶので、値の比べ方を逆（b と a）にしている
         let mode = counts
             .iter()
             .max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(a.0)))
