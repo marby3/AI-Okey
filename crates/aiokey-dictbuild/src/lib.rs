@@ -126,3 +126,8 @@ pub fn read_connection(path: &Path) -> Result<(u16, Vec<i16>), String> {
     }
     Ok((n, costs))
 }
+
+/// 英単語の頻度 TSV（1 行は「つづり<TAB>頻度」）を読む。
+pub fn read_english_tsv(_path: &Path) -> Result<Vec<(String, u32)>, String> {
+    unimplemented!()
+}
