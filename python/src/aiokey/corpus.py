@@ -98,6 +98,8 @@ def _decompress_tracked(chunks: Iterable[bytes]) -> Iterator[bytes]:
 
 def clean_wikitext(text: str) -> str:
     """wiki の構文（リンク、テンプレート、強調、表など）を外して、本文の文字だけにする。"""
+    # 見出し（== 見出し ==）は、構文を外すと = が消えて本文と見分けられなくなるので、先に消す
+    text = re.sub(r"^=+[^\n]*?=+[ \t]*$", "", text, flags=re.M)
     code = mwparserfromhell.parse(text)
     for link in code.filter_wikilinks(recursive=False):
         if DROP_LINK.match(str(link.title)):
@@ -106,13 +108,13 @@ def clean_wikitext(text: str) -> str:
         if str(tag.tag).strip().lower() in DROP_TAGS:
             _remove(code, tag)
     plain = code.strip_code(normalize=True, collapse=True)
-    # 残りがちな記号や、見出しの = を落とす
-    plain = re.sub(r"^=+.*?=+\s*$", "", plain, flags=re.M)
+    # 残りがちな記号を落とす
     plain = re.sub(r"[\[\]{}|]", "", plain)
     return plain
 
 
 def _remove(code, node) -> None:
+    # 先に消したノードの中にあったノードは、もう木にないので ValueError になる。それは無視してよい
     try:
         code.remove(node)
     except ValueError:
@@ -162,12 +164,14 @@ def extract_articles(chunks: Iterable[bytes], limit: int) -> Iterator[Article]:
 
 
 # Wikimedia は User-Agent のない取得を拒否する（https://meta.wikimedia.org/wiki/User-Agent_policy）
-USER_AGENT = "AI-O-Key-datagen/0.6 (https://github.com/marby3/AI-Okey)"
+USER_AGENT = "AI-Okey-datagen/0.6 (https://github.com/marby3/AI-Okey)"
+# 読み込みが止まったら諦めるまでの秒数
+HTTP_TIMEOUT = 60
 
 
 def _http_chunks(url: str, size: int = 1 << 20) -> Iterator[bytes]:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request) as response:
+    with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as response:
         while chunk := response.read(size):
             yield chunk
 
@@ -180,11 +184,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    # 途中で失敗したときに、切れたファイルが出力として残らないよう、書き終えてから名前を変える
+    partial = args.out.with_suffix(args.out.suffix + ".partial")
     n = 0
-    with args.out.open("w", encoding="utf-8") as f:
+    with partial.open("w", encoding="utf-8") as f:
         for article in extract_articles(_http_chunks(dump_url(args.date)), args.limit):
             f.write(json.dumps(article.__dict__, ensure_ascii=False) + "\n")
             n += 1
+    partial.replace(args.out)
     print(f"wrote {n} articles from jawiki-{args.date} to {args.out}", file=sys.stderr)
     return 0
 

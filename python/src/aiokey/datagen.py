@@ -148,7 +148,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--context-rate", type=float, default=Config.context_rate)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args(argv)
+    if args.k < 1:
+        parser.error("-k must be at least 1")
 
+    # 拡張モジュール（辞書）は、引数を確かめてから読み込む
     from aiokey import Converter
 
     config = Config(args.vowel_rate, args.truncate_rate, args.context_rate, args.seed)
@@ -162,8 +165,11 @@ def main(argv: list[str] | None = None) -> int:
         for e in missing:
             f.write(json.dumps(e, ensure_ascii=False) + "\n")
     write_english_tsv(examples, args.out / "english.tsv")
-    hit = 1 - len(missing) / max(len(examples), 1)
-    print(f"{len(examples)} examples, gold in stage1 top-{args.k}: {hit:.1%}", file=sys.stderr)
+    if examples:
+        hit = 1 - len(missing) / len(examples)
+        print(f"{len(examples)} examples, gold in stage1 top-{args.k}: {hit:.1%}", file=sys.stderr)
+    else:
+        print("no examples (no sentences in the articles)", file=sys.stderr)
     return 0
 
 

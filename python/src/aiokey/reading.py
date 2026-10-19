@@ -1,7 +1,8 @@
 """Sudachi で読みを付け、入力（スケルトン）を作る。
 
 英字だけのトークン（英単語・略語）と、半角の数字・記号・空白は、読みにせずそのまま入力に残す
-（AI-O Key では英単語をつづりどおりに打ち、数字や記号もそのまま打つため）。
+（AI-O Key では英単語をつづりどおりに打ち、数字や記号もそのまま打つため）。英単語の入力は小文字にする
+（辞書の英単語の見出しが小文字で、入力パーサーも小文字として読むため）。読みのない語（Sudachi が `*` を返す語）も、表記のまま残す。
 """
 
 from __future__ import annotations
@@ -41,7 +42,11 @@ class Annotator:
             surface = m.surface()
             if ASCII_WORD.fullmatch(surface):
                 out.append(Token(surface, surface, True))
-            elif ASCII_DIGITS.fullmatch(surface) or m.part_of_speech()[0] in ("補助記号", "空白"):
+            elif (
+                ASCII_DIGITS.fullmatch(surface)
+                or m.part_of_speech()[0] in ("補助記号", "空白")
+                or m.reading_form() in ("", "*")
+            ):
                 # 数字・記号・空白は読みにせず、そのまま打つ
                 out.append(Token(surface, surface, False))
             else:
