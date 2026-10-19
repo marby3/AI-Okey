@@ -17,3 +17,14 @@ manifest-path = "../crates/aiokey-py/Cargo.toml"
 module-name = "aiokey._engine"
 python-source = "src"
 features = ["extension-module"]
+
+[tool.uv]
+# Rust 側（aiokey-engine / aiokey-py）が変わったら拡張モジュールを作り直す
+cache-keys = [
+  { file = "pyproject.toml" },
+  { file = "../Cargo.toml" },
+  { file = "../crates/aiokey-engine/**/*.rs" },
+  { file = "../crates/aiokey-engine/Cargo.toml" },
+  { file = "../crates/aiokey-py/**/*.rs" },
+  { file = "../crates/aiokey-py/Cargo.toml" },
+]
