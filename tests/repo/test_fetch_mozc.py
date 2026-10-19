@@ -1,6 +1,6 @@
 """Issue #3 基準 1：Mozc のデータを固定コミットから取得し、SHA-256 を検証する。"""
 
-import shutil
+import re
 import subprocess
 from pathlib import Path
 
@@ -9,8 +9,8 @@ SCRIPT = ROOT / "scripts/fetch-mozc.sh"
 SUMS = ROOT / "scripts/mozc.sha256"
 
 
-def make_fake_data(tmp_path: Path) -> Path:
-    """mozc.sha256 に載っている名前のファイルを作り、その中身に合わせたハッシュ一覧を返す。"""
+def make_fake_data(tmp_path: Path) -> tuple[Path, Path]:
+    """mozc.sha256 に載っている名前のファイルを作り、(置き場所, その中身に合わせたハッシュ一覧) を返す。"""
     data = tmp_path / "mozc"
     data.mkdir()
     names = [line.split()[1] for line in SUMS.read_text().splitlines() if line.strip()]
@@ -34,8 +34,10 @@ def run_verify(data: Path, sums: Path):
 
 def test_fetch_script_pins_a_commit_and_verifies_sha256(tmp_path):
     script = SCRIPT.read_text()
-    # コミットを 40 桁のハッシュで固定している
-    assert any(len(tok) == 40 and all(c in "0123456789abcdef" for c in tok) for tok in script.split('"'))
+    # コミットを 40 桁のハッシュで固定し、取得先の URL がそのコミットを指している
+    commit = re.search(r'^MOZC_COMMIT="([0-9a-f]{40})"$', script, re.M)
+    assert commit
+    assert re.search(r'^BASE_URL="https://raw\.githubusercontent\.com/google/mozc/\$\{MOZC_COMMIT\}/', script, re.M)
     # 一覧に全ファイルがある
     names = {line.split()[1] for line in SUMS.read_text().splitlines() if line.strip()}
     assert {"id.def", "connection_single_column.txt", "README.txt"} <= names

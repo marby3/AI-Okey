@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use aiokey_dictbuild::{build_from_mozc, read_connection};
+use aiokey_dictbuild::build_from_mozc;
 use aiokey_engine::dict::Dictionary;
 
 fn mozc_dir() -> PathBuf {
@@ -68,17 +68,18 @@ fn common_prefix_search_returns_every_length() {
 #[test]
 fn connection_cost_matches_mozc_source() {
     let (_, dict) = dictionary();
-    let (n, costs) = read_connection(&mozc_dir().join("connection_single_column.txt")).unwrap();
-    assert_eq!(dict.pos_count(), n);
-    // 先頭・末尾と、はたして（品詞 12）の前後をいくつか比べる
-    for (rid, lid) in [
-        (0u16, 1u16),
-        (12, 12),
-        (12, 1851),
-        (1851, 12),
-        (n - 1, n - 1),
+    assert_eq!(dict.pos_count(), 2672);
+    // 期待値は connection_single_column.txt の (2 + rid × 2672 + lid) 行目を、ビルダーの
+    // 解析を通さずに書き写したもの。行が rid であることは Mozc の gen_connection_data.py
+    // （rid = array_index // pos_size）による。12 は副詞,一般、1851 は名詞,一般（id.def）。
+    for (rid, lid, expected) in [
+        (0u16, 1u16, 5940i16),
+        (12, 12, 2132),
+        (12, 1851, 894),
+        (1851, 12, 3759),
+        (5, 900, 7401),
+        (2671, 2671, 3776),
     ] {
-        let expected = costs[rid as usize * n as usize + lid as usize];
         assert_eq!(dict.cost(rid, lid), expected, "rid={rid} lid={lid}");
     }
 }
@@ -111,4 +112,9 @@ fn corrupted_dictionary_file_is_rejected() {
     assert!(Dictionary::from_bytes(bytes).is_err());
 
     assert!(Dictionary::from_bytes(b"not a dictionary".to_vec()).is_err());
+
+    // ヘッダーの部分表（トライの長さ）だけを、範囲内に収まるように書き換えたものも開かない
+    let mut header_edited = std::fs::read(path).unwrap();
+    header_edited[28] ^= 0x08;
+    assert!(Dictionary::from_bytes(header_edited).is_err());
 }
