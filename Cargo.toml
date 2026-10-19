@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "crates/aiokey-dictbuild",
   "crates/aiokey-engine",
   "crates/aiokey-py",
   "crates/aiokey-ipc",
