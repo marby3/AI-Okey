@@ -5,7 +5,7 @@
 //!   0  magic        "AIOKDIC\0"
 //!   8  version      u32
 //!  12  pos_count    u16  品詞（文脈 ID）の数 N
-//!  14  reserved     u16
+//!  14  unknown_pos  u16  未知語に使う品詞（文脈 ID）
 //!  16  crc32        u32  この欄（0 とみなす）を含むファイル全体の CRC32
 //!  20  reserved     u32
 //!  24  sections     (offset u32, len u32) × 部分の数 … 下の順
@@ -18,6 +18,7 @@
 //! Readings    長さ u8 + 読み（kana.rs の符号化）、の並び
 //! Strings     長さ u8 + 表記（UTF-8）、の並び
 //! PosPairs    (lid u16, rid u16) × 品詞の組の数
+//! PosFlags    u8 × N。品詞ごとの印（1: 付属語。文節の切れ目を決めるのに使う）
 //! ConnModes   i16 × N。各行（rid）でいちばん多い連接コスト
 //! ConnBits    u64 × N × W（W = ceil(N / 64)）。最頻値と違うセルに 1 を立てる
 //! ConnRanks   u32 × N × W。その語より前に立っている 1 の数
@@ -27,7 +28,9 @@
 use super::{kana, DictError};
 
 pub(crate) const MAGIC: &[u8; 8] = b"AIOKDIC\0";
-pub(crate) const VERSION: u32 = 1;
+pub(crate) const VERSION: u32 = 2;
+
+pub(crate) const POS_FUNCTION_WORD: u8 = 1;
 pub(crate) const ENTRY_SIZE: usize = 12;
 
 pub(crate) const FLAG_MASK: u32 = 0xC000_0000;
@@ -42,6 +45,7 @@ pub(crate) enum Section {
     Readings,
     Strings,
     PosPairs,
+    PosFlags,
     ConnModes,
     ConnBits,
     ConnRanks,
@@ -55,12 +59,13 @@ pub(crate) const SECTION_NAMES: [&str; SECTION_COUNT] = [
     "readings",
     "strings",
     "pos_pairs",
+    "pos_flags",
     "conn_modes",
     "conn_bits",
     "conn_ranks",
     "conn_values",
 ];
-pub(crate) const SECTION_COUNT: usize = 10;
+pub(crate) const SECTION_COUNT: usize = 11;
 pub(crate) const HEADER_SIZE: usize = 24 + 8 * SECTION_COUNT;
 
 /// 連接コストの 1 行が使う u64 の数。
@@ -71,6 +76,7 @@ pub(crate) fn words_per_row(pos_count: u16) -> usize {
 #[derive(Debug, Clone)]
 pub(crate) struct Header {
     pub pos_count: u16,
+    pub unknown_pos: u16,
     pub sections: [(u32, u32); SECTION_COUNT],
 }
 
@@ -123,8 +129,9 @@ pub(crate) fn validate(data: &[u8]) -> Result<Header, DictError> {
         return Err(err(format!("unsupported version {version}")));
     }
     let pos_count = u16::from_le_bytes([data[12], data[13]]);
-    if pos_count == 0 {
-        return Err(err("pos_count is 0"));
+    let unknown_pos = u16::from_le_bytes([data[14], data[15]]);
+    if pos_count == 0 || unknown_pos >= pos_count {
+        return Err(err("bad pos_count or unknown_pos"));
     }
     let crc = u32::from_le_bytes(data[16..20].try_into().unwrap());
     if checksum(data) != crc {
@@ -144,6 +151,7 @@ pub(crate) fn validate(data: &[u8]) -> Result<Header, DictError> {
     }
     let header = Header {
         pos_count,
+        unknown_pos,
         sections,
     };
     let get = |s: Section| {
@@ -157,6 +165,9 @@ pub(crate) fn validate(data: &[u8]) -> Result<Header, DictError> {
     }
 
     validate_connection(pos_count, &get)?;
+    if get(Section::PosFlags).len() != pos_count as usize {
+        return Err(err("pos_flags does not match pos_count"));
+    }
 
     let pairs = get(Section::PosPairs);
     if pairs.len() % 4 != 0 {

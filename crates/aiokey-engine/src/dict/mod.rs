@@ -12,10 +12,10 @@ use std::fmt;
 use std::ops::Deref;
 use std::path::Path;
 
-pub use build::{build, build_with_report, BuildReport, SourceEntry};
+pub use build::{build, build_with_report, BuildReport, PosTable, SourceEntry};
 use format::{
     item, read_u16, read_u32, read_u64, words_per_row, Header, Section, ENTRY_SIZE, FLAG_KATAKANA,
-    FLAG_MASK, FLAG_SAME_AS_READING, SECTION_NAMES,
+    FLAG_MASK, FLAG_SAME_AS_READING, POS_FUNCTION_WORD, SECTION_NAMES,
 };
 
 /// 辞書の 1 語。
@@ -129,6 +129,52 @@ impl Dictionary {
         let rank =
             read_u32(self.section(Section::ConnRanks), word) + (bits & (bit - 1)).count_ones();
         read_u16(self.section(Section::ConnValues), rank as usize) as i16
+    }
+
+    /// スケルトンの先頭と一致する語のグループを、一致した長さ（バイト数）と語の番号の範囲で返す。
+    /// 語の中身は [`Dictionary::entry_at`] などで、必要なものだけ取り出す。
+    pub fn prefix_groups(&self, key: &[u8]) -> Vec<(usize, std::ops::Range<usize>)> {
+        let key = &key[..key.iter().position(|&b| b == 0).unwrap_or(key.len())];
+        let groups = self.section(Section::Groups);
+        let count = groups.len() / 4;
+        self.trie()
+            .common_prefix_search(key)
+            .filter(|&(g, _)| (g as usize) + 1 < count)
+            .map(|(g, len)| {
+                let g = g as usize;
+                let range = read_u32(groups, g) as usize..read_u32(groups, g + 1) as usize;
+                (len, range)
+            })
+            .collect()
+    }
+
+    /// 番号 `index` の語のコストと品詞（lid, rid）。文字列は作らない。
+    pub fn entry_cost_and_pos(&self, index: usize) -> (i16, u16, u16) {
+        let e = &self.section(Section::Entries)[index * ENTRY_SIZE..(index + 1) * ENTRY_SIZE];
+        let pair = u16::from_le_bytes([e[8], e[9]]) as usize;
+        let pairs = self.section(Section::PosPairs);
+        (
+            i16::from_le_bytes([e[10], e[11]]),
+            read_u16(pairs, pair * 2),
+            read_u16(pairs, pair * 2 + 1),
+        )
+    }
+
+    /// 番号 `index` の語。
+    pub fn entry_at(&self, index: usize) -> Entry<'_> {
+        self.entry(index)
+    }
+
+    /// 未知語に使う品詞。
+    pub fn unknown_pos(&self) -> u16 {
+        self.header.unknown_pos
+    }
+
+    /// 付属語（助詞・助動詞・接尾辞など）の品詞か。範囲外の ID は付属語でないとみなす。
+    pub fn is_function_word(&self, pos: u16) -> bool {
+        self.section(Section::PosFlags)
+            .get(pos as usize)
+            .is_some_and(|f| f & POS_FUNCTION_WORD != 0)
     }
 
     /// 品詞（文脈 ID）の数。

@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use aiokey_engine::dict::{build_with_report, BuildReport, SourceEntry};
+use aiokey_engine::dict::{build_with_report, BuildReport, PosTable, SourceEntry};
 
 /// `dir` にある Mozc の辞書（dictionary00〜09.txt）と接続コストから、辞書ファイルの中身を作る。
 pub fn build_from_mozc(dir: &Path) -> Result<Vec<u8>, String> {
@@ -15,16 +15,11 @@ pub fn build_from_mozc(dir: &Path) -> Result<Vec<u8>, String> {
 /// 品詞の数は connection_single_column.txt の 1 行目を正とし、id.def の行数と一致するか確かめる。
 pub fn build_from_mozc_with_report(dir: &Path) -> Result<(Vec<u8>, BuildReport), String> {
     let (pos_count, connection) = read_connection(&dir.join("connection_single_column.txt"))?;
-    let id_def = dir.join("id.def");
-    let ids = fs::read_to_string(&id_def)
-        .map_err(|e| format!("{}: {e}", id_def.display()))?
-        .lines()
-        .filter(|l| !l.is_empty())
-        .count();
-    if ids != pos_count as usize {
+    let pos = read_id_def(&dir.join("id.def"))?;
+    if pos.count != pos_count {
         return Err(format!(
-            "{} has {ids} ids, but the connection table has {pos_count}",
-            id_def.display()
+            "id.def has {} ids, but the connection table has {pos_count}",
+            pos.count
         ));
     }
     let mut entries = Vec::new();
@@ -32,7 +27,48 @@ pub fn build_from_mozc_with_report(dir: &Path) -> Result<(Vec<u8>, BuildReport),
         let path = dir.join(format!("dictionary{i:02}.txt"));
         entries.extend(read_dictionary(&path)?);
     }
-    build_with_report(entries, pos_count, &connection)
+    build_with_report(entries, &pos, &connection)
+}
+
+/// 未知語に使う品詞の名前。
+const UNKNOWN_POS: &str = "名詞,一般,*,*,*,*,*";
+
+/// id.def を読む。1 行は「ID 品詞名」で、ID は 0 から順に並ぶ。
+///
+/// 付属語の印は、品詞名から近似で決める（助詞・助動詞と、接尾・非自立の語）。
+/// Mozc の文節区切り（segmenter）ほど細かくはない。
+pub fn read_id_def(path: &Path) -> Result<PosTable, String> {
+    let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut function_word = Vec::new();
+    let mut unknown = None;
+    for (no, line) in text.lines().filter(|l| !l.is_empty()).enumerate() {
+        let (id, name) = line
+            .split_once(' ')
+            .ok_or_else(|| format!("{}:{}: bad line: {line}", path.display(), no + 1))?;
+        if id.parse::<usize>().ok() != Some(no) {
+            return Err(format!(
+                "{}:{}: ids must be 0, 1, 2, ...",
+                path.display(),
+                no + 1
+            ));
+        }
+        let fields: Vec<&str> = name.split(',').collect();
+        let is_function = matches!(fields[0], "助詞" | "助動詞")
+            || fields
+                .get(1)
+                .is_some_and(|f| matches!(*f, "接尾" | "非自立"));
+        function_word.push(is_function);
+        if name == UNKNOWN_POS && unknown.is_none() {
+            unknown = Some(no as u16);
+        }
+    }
+    let count = u16::try_from(function_word.len()).map_err(|_| "too many ids in id.def")?;
+    let unknown = unknown.ok_or_else(|| format!("{}: no {UNKNOWN_POS}", path.display()))?;
+    Ok(PosTable {
+        count,
+        unknown,
+        function_word,
+    })
 }
 
 /// Mozc の辞書ファイル 1 つを読む。1 行は「読み, lid, rid, コスト, 表記」のタブ区切り。

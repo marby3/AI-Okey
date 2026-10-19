@@ -31,7 +31,7 @@ jobs:
 
       - name: Build
         run: |
-          cargo build --release -p aiokey-tsf -p aiokey-server -p aiokey-ui -p aiokey-launcher
+          cargo build --release -p aiokey-tsf -p aiokey-server -p aiokey-ui -p aiokey-launcher -p aiokey-cli
           cargo build --release -p aiokey-tsf --target i686-pc-windows-msvc
 
       - name: Build dictionary
@@ -45,7 +45,7 @@ jobs:
         run: |
           $out = "aiokey-$env:GITHUB_REF_NAME-windows"
           New-Item -ItemType Directory -Force "$out/x86" | Out-Null
-          Copy-Item target/release/aiokey.dll, target/release/aiokey-server.exe, target/release/aiokey-ui.exe, target/release/aiokey-launcher.exe $out
+          Copy-Item target/release/aiokey.dll, target/release/aiokey-server.exe, target/release/aiokey-ui.exe, target/release/aiokey-launcher.exe, target/release/aiokey-cli.exe $out
           Copy-Item target/i686-pc-windows-msvc/release/aiokey.dll "$out/x86"
           Copy-Item LICENSE, NOTICE, aiokey.dic $out
           Copy-Item data/mozc/README.txt "$out/MOZC-DICTIONARY-README.txt"
@@ -61,3 +61,23 @@ jobs:
           case "$GITHUB_REF_NAME" in v0.*|*-*) prerelease="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" "aiokey-$GITHUB_REF_NAME-windows.zip" aiokey.dic \
             --title "AI-O Key $GITHUB_REF_NAME" --generate-notes $prerelease
+
+  linux-cli:
+    # Windows のジョブが Release を作ったあとに、Linux 版の aiokey-cli を足す
+    needs: release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Build and upload aiokey-cli
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cargo build --release -p aiokey-cli
+          name="aiokey-cli-$GITHUB_REF_NAME-linux-x86_64"
+          cp target/release/aiokey-cli "$name"
+          gh release upload "$GITHUB_REF_NAME" "$name"
