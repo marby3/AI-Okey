@@ -104,7 +104,37 @@ pub fn convert(dict: &Dictionary, input: &str, options: &Options) -> Vec<Candida
         return Vec::new();
     }
     let nodes = build_nodes(dict, &lattice);
-    search(dict, &nodes, lattice.len(), options.k)
+    let mut candidates = search(dict, &nodes, lattice.len(), options.k);
+    add_raw_input(input, lattice.len(), &mut candidates, options.k);
+    candidates
+}
+
+/// 入力した文字列そのもの（英語指定の `/` は除く）を、必ず候補に入れる。
+///
+/// 候補がすでに K 件あれば最後の 1 件と入れ替える。並びが崩れないよう、コストは
+/// ほかの候補のいちばん大きいコスト以上にする。
+fn add_raw_input(input: &str, len: usize, candidates: &mut Vec<Candidate>, k: usize) {
+    let raw: String = input
+        .chars()
+        .filter(|&c| c != crate::input::ENGLISH_PREFIX)
+        .collect();
+    if raw.is_empty() || candidates.iter().any(|c| c.surface == raw) {
+        return;
+    }
+    if candidates.len() >= k {
+        candidates.truncate(k.saturating_sub(1));
+    }
+    let cost = candidates.last().map_or(0, |c| c.cost);
+    candidates.push(Candidate {
+        surface: raw.clone(),
+        reading: raw.clone(),
+        cost,
+        words: vec![Word {
+            surface: raw.clone(),
+            reading: raw,
+        }],
+        bunsetsu: std::iter::once(0..len).collect(),
+    });
 }
 
 /// 入力ラティスの 1 本の道（1 語ぶん）。
