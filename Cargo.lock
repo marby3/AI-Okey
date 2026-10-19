@@ -27,6 +27,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "aiokey-cli"
+version = "0.3.0"
+dependencies = [
+ "aiokey-dictbuild",
+ "aiokey-engine",
+]
+
+[[package]]
 name = "aiokey-dictbuild"
 version = "0.3.0"
 dependencies = [

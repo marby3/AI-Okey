@@ -1,0 +1,12 @@
+[package]
+name = "aiokey-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "AI-O Key の変換を試す・測るための CLI"
+
+[dependencies]
+aiokey-engine = { path = "../aiokey-engine" }
+
+[dev-dependencies]
+aiokey-dictbuild = { path = "../aiokey-dictbuild" }
