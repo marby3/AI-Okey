@@ -39,13 +39,14 @@ def test_fetch_extracts_articles_from_a_pinned_dump_and_splits_sentences():
             (1, "果物", 0, False, "'''りんご'''は[[果物]]である。とても赤い！{{参照}}"),
             (2, "転送", 0, True, "#REDIRECT [[果物]]"),
             (3, "ノート:果物", 1, False, "議論のページ。"),
-            (4, "野菜", 0, False, "にんじんは野菜だ。"),
+            (4, "野菜", 0, False, "にんじんは野菜だ。\n=== 脚注と関連項目 ===\nおわりです。"),
         ]
     )
-    articles = list(corpus.extract_articles([bz2.compress(xml)], limit=1))
-    assert len(articles) == 1
-    assert articles[0].id == "1"
+    articles = list(corpus.extract_articles([bz2.compress(xml)], limit=2))
+    assert [a.id for a in articles] == ["1", "4"]
     assert articles[0].sentences == ["りんごは果物である。", "とても赤い！"]
+    # 見出しは文に入れない
+    assert articles[1].sentences == ["にんじんは野菜だ。", "おわりです。"]
 
 
 def test_reading_skeleton_keeps_english_spelling():
