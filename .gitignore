@@ -13,3 +13,6 @@ __pycache__/
 # Python 拡張のビルド成果物（maturin develop が python/src/aiokey/ に出す）
 /python/src/aiokey/*.so
 /python/src/aiokey/*.pyd
+
+# 取得したデータ（scripts/fetch-mozc.sh など）
+/data/

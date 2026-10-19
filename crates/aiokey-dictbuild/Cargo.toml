@@ -1,0 +1,9 @@
+[package]
+name = "aiokey-dictbuild"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Mozc の辞書から AI-O Key のスケルトン索引辞書を作る"
+
+[dependencies]
+aiokey-engine = { path = "../aiokey-engine" }

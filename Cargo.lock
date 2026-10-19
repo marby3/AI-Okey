@@ -27,12 +27,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "aiokey-dictbuild"
+version = "0.3.0"
+dependencies = [
+ "aiokey-engine",
+]
+
+[[package]]
 name = "aiokey-engine"
-version = "0.2.0"
+version = "0.3.0"
+dependencies = [
+ "crc32fast",
+ "memmap2",
+ "yada",
+]
 
 [[package]]
 name = "aiokey-ipc"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "prost",
  "serde",
@@ -43,14 +55,14 @@ dependencies = [
 
 [[package]]
 name = "aiokey-launcher"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
 ]
 
 [[package]]
 name = "aiokey-macros"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -59,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "aiokey-py"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aiokey-engine",
  "pyo3",
@@ -67,7 +79,7 @@ dependencies = [
 
 [[package]]
 name = "aiokey-server"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aiokey-ipc",
  "async-stream",
@@ -81,7 +93,7 @@ dependencies = [
 
 [[package]]
 name = "aiokey-tsf"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aiokey-ipc",
  "aiokey-macros",
@@ -105,7 +117,7 @@ dependencies = [
 
 [[package]]
 name = "aiokey-ui"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aiokey-ipc",
  "aiokey-server",
@@ -503,6 +515,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16b80225097f2e5ae4e7179dd2266824648f3e2f49d9134d584b76389d31c4c3"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "crc32fast"
+version = "1.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01a7799fd6b852db0e61728dde9a204c423b44d689dbd432522543614b490e78"
+dependencies = [
+ "cfg-if",
 ]
 
 [[package]]
@@ -1654,6 +1675,15 @@ name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
+
+[[package]]
+name = "memmap2"
+version = "0.9.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "memoffset"
@@ -4009,6 +4039,12 @@ dependencies = [
  "once_cell",
  "pkg-config",
 ]
+
+[[package]]
+name = "yada"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aed111bd9e48a802518765906cbdadf0b45afb72b9c81ab049a3b86252adffdd"
 
 [[package]]
 name = "yoke"
