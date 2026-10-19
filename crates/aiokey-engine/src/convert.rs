@@ -179,12 +179,13 @@ fn build_nodes(dict: &Dictionary, lattice: &InputLattice) -> Vec<Node> {
                 let constrained = vowels.iter().any(Option::is_some);
                 let mut found = Vec::new();
                 for index in range {
-                    if !seen_entries.insert((end, index)) {
+                    // 打った母音と合う語だけを、処理済みとして記録する
+                    if seen_entries.contains(&(end, index))
+                        || (constrained && !vowels_match(&dict.entry_at(index).reading, vowels))
+                    {
                         continue;
                     }
-                    if constrained && !vowels_match(&dict.entry_at(index).reading, vowels) {
-                        continue;
-                    }
+                    seen_entries.insert((end, index));
                     let (cost, _, _) = dict.entry_cost_and_pos(index);
                     found.push((cost, index));
                 }
