@@ -1,6 +1,6 @@
 //! Issue #2 の受け入れテスト：スケルトン変換器と入力パーサー。
 
-use aiokey_engine::input::{parse, Unit, SEPARATOR};
+use aiokey_engine::input::{parse, Unit};
 use aiokey_engine::skeleton::skeletonize;
 
 fn consonant(letter: char) -> Unit {
@@ -95,9 +95,9 @@ fn slash_marks_an_english_word() {
 
 #[test]
 fn shift_space_becomes_a_separator() {
-    let input = format!("ht{SEPARATOR}st");
+    // TSF は Shift+Space を半角の空白として送る（通常の Space は変換に使うので入力列に入らない）
     assert_eq!(
-        parse(&input).paths(),
+        parse("ht st").paths(),
         vec![vec![
             consonant('h'),
             consonant('t'),
@@ -111,9 +111,9 @@ fn shift_space_becomes_a_separator() {
 #[test]
 fn unexpected_characters_do_not_break_parsing() {
     // IME から届く入力は信頼できない。想定外の文字は Other として残し、落ちない
-    let paths = parse("k\u{0}漢🙂");
+    let lattice = parse("k\u{0}漢🙂");
     assert_eq!(
-        paths.paths(),
+        lattice.paths(),
         vec![vec![
             consonant('k'),
             Unit::Other('\u{0}'),
@@ -121,5 +121,6 @@ fn unexpected_characters_do_not_break_parsing() {
             Unit::Other('🙂'),
         ]]
     );
-    assert!(parse("").paths().iter().all(|p| p.is_empty()));
+    // 空の入力は、長さ 0 の読み方が 1 つだけ
+    assert_eq!(parse("").paths(), vec![Vec::<Unit>::new()]);
 }
