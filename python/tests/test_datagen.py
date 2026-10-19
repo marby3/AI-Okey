@@ -64,7 +64,11 @@ def test_augmentation_rates_follow_the_config():
     rate = lambda flag: sum(e[flag] for e in examples) / n
     assert abs(rate("vowels_kept") - 0.3) < 0.05
     assert abs(rate("truncated") - 0.2) < 0.05
-    assert abs(rate("has_context") - 0.6) < 0.05
+    # 文脈は前の文があるとき（記事の 2 文目以降）だけ付けられるので、その中での割合を見る
+    with_previous = [e for e in examples if e["sentence_index"] > 0]
+    context_rate = sum(e["has_context"] for e in with_previous) / len(with_previous)
+    assert abs(context_rate - 0.6) < 0.05
+    assert not any(e["has_context"] for e in examples if e["sentence_index"] == 0)
     # 母音を残した例は、子音だけの入力より長い
     assert all(len(e["input"]) >= len(e["skeleton"]) for e in examples)
 
