@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Iterable, Iterator
 
@@ -136,8 +137,25 @@ def summarize(examples: Iterable[dict], k: int) -> dict:
     }
 
 
-def evaluate(examples: Iterable[dict], converter, k: int) -> dict:
-    """例の入力を段1にかけ直して、指標をまとめる。`converter` は `convert(input, k) -> list[str]` を持つもの
-    （`aiokey.Converter`）。"""
-    scored = ({**e, "candidates": converter.convert(e["input"], k)} for e in examples)
-    return summarize(scored, k)
+def evaluate(examples: Iterable[dict], converter, k: int, scorer=None) -> dict:
+    """例の入力を段1にかけ直して、指標をまとめる。`converter` は `convert_with_readings(input, k)` を持つもの
+    （`aiokey.Converter`）。`scorer`（`aiokey.Scorer`）を渡すと、段1の候補を段2の確率で並べ替えてから数え、
+    採点にかかった時間の p50・p95（ミリ秒）も出す。"""
+    times: list[float] = []
+
+    def candidates(e: dict) -> list[str]:
+        pairs = converter.convert_with_readings(e["input"], k)
+        if scorer is None or not pairs:
+            return [s for s, _ in pairs]
+        started = time.perf_counter()
+        probs, _ = scorer.score(e.get("context", ""), e["input"], pairs)
+        times.append((time.perf_counter() - started) * 1000)
+        ranked = sorted(range(len(probs)), key=lambda i: -probs[i])
+        return [pairs[i][0] for i in ranked] + [s for s, _ in pairs[len(probs):]]
+
+    report = summarize(({**e, "candidates": candidates(e)} for e in examples), k)
+    if times:
+        times.sort()
+        at = lambda q: times[round((len(times) - 1) * q)]
+        report["stage2_ms"] = {"p50": at(0.5), "p95": at(0.95), "max": times[-1], "calls": len(times)}
+    return report

@@ -20,6 +20,7 @@ htsthqtun  →  果たして本当に
 | クレート | 役割 |
 |---|---|
 | `aiokey-engine` | 変換エンジン（OS に依存しない）。スケルトン変換、入力パーサー、スケルトン索引辞書、段1（ラティスと N-best） |
+| `aiokey-scorer` | 段2：llama.cpp で段1の候補を採点する（zenz の GGUF を使う） |
 | `aiokey-cli` | 変換を試す・測る CLI（`convert`、`bench`） |
 | `aiokey-dictbuild` | Mozc の辞書からスケルトン索引辞書（`aiokey.dic`）を作る |
 | `aiokey-py` | aiokey-engine を Python から呼ぶ拡張モジュール（`python/` の `aiokey` パッケージ） |
@@ -43,6 +44,9 @@ scripts/fetch-mozc.sh
 
 # スケルトン索引辞書を作る
 docker compose run --rm dev cargo run --release -p aiokey-dictbuild   # build/aiokey.dic に出力
+
+# 段2のモデル（zenz-v2.5-xsmall）を取得して GGUF に変換する（data/models）
+docker compose run --rm dev scripts/fetch-zenz.sh
 
 # 変換を試す
 docker compose run --rm dev cargo run --release -p aiokey-cli -- convert htsthqtun

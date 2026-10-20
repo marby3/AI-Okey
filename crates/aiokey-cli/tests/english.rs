@@ -35,7 +35,10 @@ fn surfaces(input: &str) -> Vec<String> {
 fn english_words_come_from_the_frequency_tsv() {
     // 辞書に、つづりを見出しにした英単語が入っている
     let entries = dictionary().lookup("keyboard");
-    assert!(entries.iter().any(|e| e.surface == "keyboard"), "{entries:?}");
+    assert!(
+        entries.iter().any(|e| e.surface == "keyboard"),
+        "{entries:?}"
+    );
     let s = surfaces("keyboard");
     assert!(s.iter().any(|x| x == "keyboard"), "{s:?}");
 }
@@ -46,15 +49,19 @@ fn skeleton_interpretation_stays_next_to_the_english_word() {
     assert!(s.iter().any(|x| x == "queue"), "{s:?}");
     // かなを含み、スケルトンにすると入力と同じになる候補（スケルトンとしての解釈）
     assert!(
-        s.iter()
-            .any(|x| !x.is_ascii() && skeletonize(x) == "queue"),
+        s.iter().any(|x| !x.is_ascii() && skeletonize(x) == "queue"),
         "{s:?}"
     );
 }
 
 #[test]
 fn raw_input_is_always_a_candidate() {
-    for (input, k) in [("htsthqtun", 32), ("htsthqtun", 3), ("zzzz", 32), ("kik", 1)] {
+    for (input, k) in [
+        ("htsthqtun", 32),
+        ("htsthqtun", 3),
+        ("zzzz", 32),
+        ("kik", 1),
+    ] {
         let candidates = convert(dictionary(), input, &Options { k });
         assert!(candidates.len() <= k);
         assert!(

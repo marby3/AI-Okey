@@ -9,3 +9,4 @@ description = "段2：llama.cpp で候補を採点する（OS に依存しない
 llama-cpp-2 = { version = "=0.1.158", default-features = false }
 # llama.cpp 本体の版を固定する（llama-cpp-2 は sys を ^ で引くので、明示しないと新しい版になる）
 llama-cpp-sys-2 = { version = "=0.1.158", default-features = false }
+self_cell = "1"

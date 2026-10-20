@@ -3,26 +3,39 @@
 //! zenz-v2.5-xsmall の GGUF（`scripts/fetch-zenz.sh` で作る）を使う。置き場所は環境変数
 //! `AIOKEY_ZENZ_GGUF`、なければリポジトリの data/models/zenz-v2.5-xsmall-q8_0.gguf。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use aiokey_scorer::{prompt, Config, PromptFormat, Request, Scorer};
 
 fn model() -> PathBuf {
-    std::env::var_os("AIOKEY_ZENZ_GGUF").map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/models/zenz-v2.5-xsmall-q8_0.gguf")
-    })
+    std::env::var_os("AIOKEY_ZENZ_GGUF")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../data/models/zenz-v2.5-xsmall-q8_0.gguf")
+        })
 }
 
 /// 量子化しない（f32 の）GGUF。共有方式の答え合わせに使う。
 fn model_f32() -> PathBuf {
-    std::env::var_os("AIOKEY_ZENZ_F32_GGUF").map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/models/zenz-v2.5-xsmall-f32.gguf")
-    })
+    std::env::var_os("AIOKEY_ZENZ_F32_GGUF")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../data/models/zenz-v2.5-xsmall-f32.gguf")
+        })
 }
 
-fn open(path: &PathBuf, format: PromptFormat) -> Scorer {
-    Scorer::open(path, &Config { threads: 2, format, ..Config::default() })
-        .expect("zenz の GGUF を開けない。scripts/fetch-zenz.sh を実行したか確かめる")
+fn open(path: &Path, format: PromptFormat) -> Scorer {
+    Scorer::open(
+        path,
+        &Config {
+            threads: 2,
+            format,
+            ..Config::default()
+        },
+    )
+    .expect("zenz の GGUF を開けない。scripts/fetch-zenz.sh を実行したか確かめる")
 }
 
 fn scorer(format: PromptFormat) -> Scorer {
@@ -109,7 +122,10 @@ fn prompt_format_is_switchable() {
         prompt(PromptFormat::Aiokey, "前の文", "htst", "はたして"),
         "\u{EE02}前の文\u{EE00}htst\u{EE01}"
     );
-    assert_ne!(scorer(PromptFormat::ZenzV25).config().format, PromptFormat::Aiokey);
+    assert_ne!(
+        scorer(PromptFormat::ZenzV25).config().format,
+        PromptFormat::Aiokey
+    );
 }
 
 #[test]
@@ -118,7 +134,15 @@ fn stage2_result_is_recorded() {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/eval/stage2-zenz-untrained.md"),
     )
     .unwrap();
-    for needle in ["top-1", "段1単体", "K = 32", "2 スレッド", "p50", "p95", "zenz-v2.5-xsmall"] {
+    for needle in [
+        "top-1",
+        "段1単体",
+        "K = 32",
+        "2 スレッド",
+        "p50",
+        "p95",
+        "zenz-v2.5-xsmall",
+    ] {
         assert!(doc.contains(needle), "{needle}");
     }
 }
@@ -131,15 +155,29 @@ fn odd_candidates_and_a_bad_model_path_do_not_panic() {
     let req = Request {
         context: "\0",
         input: "k\0",
-        candidates: vec![("", ""), ("a\0b", "\0"), (long.as_str(), long.as_str()), ("聞く", "きく")],
+        candidates: vec![
+            ("", ""),
+            ("a\0b", "\0"),
+            (long.as_str(), long.as_str()),
+            ("聞く", "きく"),
+        ],
     };
     let scores = s.score(&req).unwrap();
     assert_eq!(scores.probs.len(), 4);
-    assert!(s.score(&Request { context: "", input: "k", candidates: vec![] }).unwrap().probs.is_empty());
+    assert!(s
+        .score(&Request {
+            context: "",
+            input: "k",
+            candidates: vec![]
+        })
+        .unwrap()
+        .probs
+        .is_empty());
     assert!(Scorer::open(&PathBuf::from("/nonexistent.gguf"), &Config::default()).is_err());
 
     // 長い文の候補を 32 件まとめても、1 回のバッチの上限を超えて落ちない
-    let sentence = "果たして本当にそうなのかを確かめるために、私たちは長い時間をかけて調べることにした";
+    let sentence =
+        "果たして本当にそうなのかを確かめるために、私たちは長い時間をかけて調べることにした";
     // 読みが先頭から分かれると、トライで共有できず、トークンが候補の数だけ増える
     let readings: Vec<String> = (0..32)
         .map(|i| format!("{i}はたしてほんとうにそうなのかをたしかめるために、わたしたちはながいじかんをかけてしらべることにした").repeat(2))
@@ -148,7 +186,11 @@ fn odd_candidates_and_a_bad_model_path_do_not_panic() {
     let req = Request {
         context: "",
         input: "htsthqtun",
-        candidates: surfaces.iter().zip(&readings).map(|(s, r)| (s.as_str(), r.as_str())).collect(),
+        candidates: surfaces
+            .iter()
+            .zip(&readings)
+            .map(|(s, r)| (s.as_str(), r.as_str()))
+            .collect(),
     };
     assert_eq!(s.score(&req).unwrap().probs.len(), 32);
 }

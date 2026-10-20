@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # zenz-v2.5-xsmall を固定リビジョンで取得して SHA-256 を確かめ、GGUF（Q8_0）に変換する。
+# 答え合わせのテスト用に、量子化しない f32 の GGUF も作る（--out の .gguf を -f32.gguf にしたもの）。
 #
 #   scripts/fetch-zenz.sh                  取得・検証・変換（dev コンテナの中で実行する）
 #   scripts/fetch-zenz.sh --verify-only    取得も変換もせず、置いてあるファイルだけを検証する
@@ -66,5 +67,11 @@ mkdir -p "$(dirname "$out")"
 uv run --no-project --python 3.12 --quiet \
   --index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match \
   --with-requirements "$llama/requirements/requirements-convert_hf_to_gguf.txt" \
-  python "$root/scripts/convert_zenz.py" "$llama" "$dir" "$out"
-echo "wrote $out ($(sha256sum "$out" | cut -c1-16)…)"
+  python "$root/scripts/convert_zenz.py" "$llama" "$dir" "$out" q8_0
+f32="${out%-q8_0.gguf}-f32.gguf"
+[ "$f32" = "$out" ] && f32="${out%.gguf}-f32.gguf"
+uv run --no-project --python 3.12 --quiet \
+  --index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match \
+  --with-requirements "$llama/requirements/requirements-convert_hf_to_gguf.txt" \
+  python "$root/scripts/convert_zenz.py" "$llama" "$dir" "$f32" f32
+echo "wrote $out ($(sha256sum "$out" | cut -c1-16)…) and $f32"
