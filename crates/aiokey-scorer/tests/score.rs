@@ -193,4 +193,14 @@ fn odd_candidates_and_a_bad_model_path_do_not_panic() {
             .collect(),
     };
     assert_eq!(s.score(&req).unwrap().probs.len(), 32);
+
+    // aiokey 形式で、入力（スケルトン）がとても長くても落ちない
+    let mut a = scorer(PromptFormat::Aiokey);
+    let long_input = "k".repeat(5000);
+    let req = Request {
+        context: "",
+        input: &long_input,
+        candidates: vec![("聞く", "きく")],
+    };
+    assert_eq!(a.score(&req).unwrap().probs.len(), 1);
 }
