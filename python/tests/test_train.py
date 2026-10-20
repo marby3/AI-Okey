@@ -77,6 +77,7 @@ def trained(tmp_path_factory):
         "--base", str(BASE),
         "--out", str(out),
         "--epochs", "1",
+        "--device", "cpu",
         "--f32",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -91,6 +92,8 @@ def test_one_command_trains_calibrates_and_exports_q8_0_on_cpu(trained):
     assert report["temperature"] > 0
     gguf = trained / "aiokey-stage2-q8_0.gguf"
     assert gguf.read_bytes()[:4] == b"GGUF"
+    # Q8_0 は 1 要素およそ 1 バイトなので、f32（4 バイト）の 3 分の 1 より小さい
+    assert gguf.stat().st_size < (trained / "aiokey-stage2-f32.gguf").stat().st_size / 3
     # 書き出した GGUF は採点器で開け、温度を渡して使える
     scorer = aiokey.Scorer(str(gguf), "aiokey", 2, 32, report["temperature"])
     probs, _margin = scorer.score("", "kik", [("機器", ""), ("開花", "")])
@@ -112,6 +115,20 @@ def test_exported_gguf_log_probs_match_pytorch(trained):
             assert len(got) == len(expected), name
             for g, x, seq in zip(got, expected, encoded.sequences):
                 assert g == pytest.approx(x, abs=per_token * (len(seq) - encoded.start)), name
+
+
+def test_malformed_examples_fail_with_line_number(tmp_path):
+    rows = ["null", json.dumps({"input": "kk", "target": "仮名", "candidates": ["仮名", 1]})]
+    for no, row in enumerate(rows, 1):
+        path = tmp_path / f"bad{no}.jsonl"
+        path.write_text(json.dumps(TRAIN[0], ensure_ascii=False) + "\n" + row + "\n", encoding="utf-8")
+        out = subprocess.run(
+            [sys.executable, "-m", "aiokey", "train", "--train", str(path), "--dev", str(path), "--out", str(tmp_path / "out")],
+            capture_output=True,
+            text=True,
+        )
+        assert out.returncode == 1
+        assert f"error: {path}:2:" in out.stderr
 
 
 def test_train_image_uses_cuda_and_same_command_switches_device(monkeypatch):
