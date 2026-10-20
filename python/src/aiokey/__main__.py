@@ -18,15 +18,27 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("--examples", type=Path, required=True, help="aiokey.datagen が作った JSONL")
     ev.add_argument("--dict", type=Path, default=Path("build/aiokey.dic"))
     ev.add_argument("-k", type=int, default=32)
+    ev.add_argument("--scorer", type=Path, help="段2の GGUF。渡すと段1の候補を段2で並べ替えてから数える")
+    ev.add_argument("--format", choices=["zenz", "aiokey"], default="zenz", help="段2のプロンプトの形式")
+    ev.add_argument("--threads", type=int, default=2, help="段2の推論のスレッド数")
+    ev.add_argument("--limit", type=int, help="先頭からこの数の例だけで測る")
+    ev.add_argument("--max-target-chars", type=int, help="正解の文字数がこれ以下の例だけで測る")
     args = parser.parse_args(argv)
 
-    from aiokey import Converter
+    import itertools
+
+    from aiokey import Converter, Scorer
     from aiokey.evaluate import ExamplesError, evaluate, read_examples
 
     if args.k < 1:
         parser.error("-k must be at least 1")
     try:
-        report = evaluate(read_examples(args.examples), Converter(str(args.dict)), args.k)
+        scorer = Scorer(str(args.scorer), args.format, args.threads, args.k) if args.scorer else None
+        examples = read_examples(args.examples)
+        if args.max_target_chars:
+            examples = (e for e in examples if len(e["target"]) <= args.max_target_chars)
+        examples = itertools.islice(examples, args.limit)
+        report = evaluate(examples, Converter(str(args.dict)), args.k, scorer)
     except (ExamplesError, OSError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

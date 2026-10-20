@@ -5,6 +5,7 @@ members = [
   "crates/aiokey-dictbuild",
   "crates/aiokey-engine",
   "crates/aiokey-py",
+  "crates/aiokey-scorer",
   "crates/aiokey-ipc",
   "crates/aiokey-server",
   "crates/aiokey-launcher",
@@ -14,7 +15,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/marby3/AI-Okey"

@@ -23,9 +23,18 @@ jobs:
           key: mozc-${{ hashFiles('scripts/mozc.sha256') }}
       - name: Fetch Mozc dictionary data
         run: bash scripts/fetch-mozc.sh
+      - uses: astral-sh/setup-uv@v6
+      - name: Cache zenz GGUF
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/zenz-v2.5-xsmall
+            data/models
+          key: zenz-${{ hashFiles('scripts/zenz.sha256', 'scripts/fetch-zenz.sh', 'scripts/convert_zenz.py') }}
+      - name: Fetch and convert zenz
+        run: bash scripts/fetch-zenz.sh
       - name: Test portable crates
         run: cargo test-portable
-      - uses: astral-sh/setup-uv@v6
       - name: Repository layout tests
         run: uv run --no-project --python 3.12 --with pytest==8.4.2 pytest tests/repo -q
       - name: Python tests (aiokey package)

@@ -12,6 +12,7 @@ crate-type = ["cdylib"]
 [dependencies]
 aiokey-engine = { path = "../aiokey-engine" }
 aiokey-dictbuild = { path = "../aiokey-dictbuild" }
+aiokey-scorer = { path = "../aiokey-scorer" }
 pyo3 = { version = "0.25", features = ["abi3-py312"] }
 
 [features]

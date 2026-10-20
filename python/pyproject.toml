@@ -25,6 +25,8 @@ manifest-path = "../crates/aiokey-py/Cargo.toml"
 module-name = "aiokey._engine"
 python-source = "src"
 features = ["extension-module"]
+# llama.cpp を含むので、開発用のインストールでも最適化してビルドする（デバッグビルドの推論はとても遅い）
+profile = "release"
 
 [tool.uv]
 # Rust 側（aiokey-engine / aiokey-py）が変わったら拡張モジュールを作り直す
@@ -37,4 +39,6 @@ cache-keys = [
   { file = "../crates/aiokey-py/Cargo.toml" },
   { file = "../crates/aiokey-dictbuild/**/*.rs" },
   { file = "../crates/aiokey-dictbuild/data/*" },
+  { file = "../crates/aiokey-scorer/**/*.rs" },
+  { file = "../crates/aiokey-scorer/Cargo.toml" },
 ]
