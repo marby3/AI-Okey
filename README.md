@@ -54,6 +54,9 @@ docker compose run --rm dev cargo test-portable
 docker compose run --rm dev sh -c "cd python && uv run python -m aiokey.corpus --limit 300 --out ../data/wiki/articles.jsonl"
 docker compose run --rm dev sh -c "cd python && uv run python -m aiokey.datagen --articles ../data/wiki/articles.jsonl --dict ../build/aiokey.dic --out ../data/examples"
 
+# 段1の精度を測る（test セットで再現率・top-1・top-5・打鍵削減率など）
+docker compose run --rm dev sh -c "cd python && uv run python -m aiokey eval --examples ../data/examples/test.jsonl --dict ../build/aiokey.dic"
+
 # Python パッケージ（データ生成・評価用）のテスト
 docker compose run --rm dev sh -c "cd python && uv run pytest"
 
