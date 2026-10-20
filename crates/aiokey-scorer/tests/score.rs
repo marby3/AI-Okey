@@ -13,9 +13,20 @@ fn model() -> PathBuf {
     })
 }
 
-fn scorer(format: PromptFormat) -> Scorer {
-    Scorer::open(&model(), &Config { threads: 2, format, ..Config::default() })
+/// 量子化しない（f32 の）GGUF。共有方式の答え合わせに使う。
+fn model_f32() -> PathBuf {
+    std::env::var_os("AIOKEY_ZENZ_F32_GGUF").map(PathBuf::from).unwrap_or_else(|| {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/models/zenz-v2.5-xsmall-f32.gguf")
+    })
+}
+
+fn open(path: &PathBuf, format: PromptFormat) -> Scorer {
+    Scorer::open(path, &Config { threads: 2, format, ..Config::default() })
         .expect("zenz の GGUF を開けない。scripts/fetch-zenz.sh を実行したか確かめる")
+}
+
+fn scorer(format: PromptFormat) -> Scorer {
+    open(&model(), format)
 }
 
 const CANDIDATES: &[(&str, &str)] = &[
@@ -36,8 +47,10 @@ fn request<'a>(input: &'a str, context: &'a str) -> Request<'a> {
 
 #[test]
 fn shared_kv_matches_scoring_each_candidate_alone() {
+    // 量子化（Q8_0）の行列積は、バッチの大きさでカーネルが変わり、同じ計算でも 0.1 程度ずれる。
+    // ここで確かめたいのは KV の共有とトライの正しさなので、量子化しない f32 のモデルで比べる。
     for format in [PromptFormat::ZenzV25, PromptFormat::Aiokey] {
-        let mut s = scorer(format);
+        let mut s = open(&model_f32(), format);
         let req = request("htsthqtun", "そう言われても");
         let shared = s.score(&req).unwrap();
         let alone = s.score_each_alone(&req).unwrap();
