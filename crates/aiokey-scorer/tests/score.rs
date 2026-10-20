@@ -137,4 +137,18 @@ fn odd_candidates_and_a_bad_model_path_do_not_panic() {
     assert_eq!(scores.probs.len(), 4);
     assert!(s.score(&Request { context: "", input: "k", candidates: vec![] }).unwrap().probs.is_empty());
     assert!(Scorer::open(&PathBuf::from("/nonexistent.gguf"), &Config::default()).is_err());
+
+    // 長い文の候補を 32 件まとめても、1 回のバッチの上限を超えて落ちない
+    let sentence = "果たして本当にそうなのかを確かめるために、私たちは長い時間をかけて調べることにした";
+    // 読みが先頭から分かれると、トライで共有できず、トークンが候補の数だけ増える
+    let readings: Vec<String> = (0..32)
+        .map(|i| format!("{i}はたしてほんとうにそうなのかをたしかめるために、わたしたちはながいじかんをかけてしらべることにした").repeat(2))
+        .collect();
+    let surfaces: Vec<String> = (0..32).map(|i| format!("{sentence}{i}")).collect();
+    let req = Request {
+        context: "",
+        input: "htsthqtun",
+        candidates: surfaces.iter().zip(&readings).map(|(s, r)| (s.as_str(), r.as_str())).collect(),
+    };
+    assert_eq!(s.score(&req).unwrap().probs.len(), 32);
 }
