@@ -230,11 +230,13 @@ impl Scorer {
                 let candidate_start = tokens.len();
                 tokens.extend(self.tokenize(surface));
                 tokens.push(eos);
-                // 1 候補でバッチの予算を超えるほど長い候補は切り詰める（採点は不正確になるが落ちない）
-                tokens.truncate(BATCH_BUDGET);
+                // 1 候補でバッチの予算を超えるほど長い候補は採点しない（切り詰めると別の文の確率になるため）
+                if tokens.len() > BATCH_BUDGET {
+                    tokens.clear();
+                }
                 Sequence {
+                    candidate_start: candidate_start.min(tokens.len()),
                     tokens,
-                    candidate_start,
                 }
             })
             .collect()
@@ -245,10 +247,31 @@ impl Scorer {
     /// 1 回のバッチに入れるトークンが [`BATCH_BUDGET`] を超えそうなら、候補をいくつかのまとまりに分けて
     /// 順に計算する（先頭の KV はまとまりの間でも使い回す）。
     pub fn score(&mut self, req: &Request) -> Result<Scores, String> {
-        let seqs = self.sequences(req);
-        if seqs.is_empty() {
+        let all = self.sequences(req);
+        if all.is_empty() {
             return Ok(Scores::default());
         }
+        // 長すぎて採点しない候補は、log P を −∞（確率 0）にする
+        let scorable: Vec<usize> = (0..all.len())
+            .filter(|&i| !all[i].tokens.is_empty())
+            .collect();
+        let mut log_probs = vec![f32::NEG_INFINITY; all.len()];
+        if scorable.is_empty() {
+            let (probs, margin) = distribution(&log_probs, self.config.temperature);
+            return Ok(Scores {
+                log_probs,
+                probs,
+                margin,
+                ..Scores::default()
+            });
+        }
+        let seqs: Vec<Sequence> = scorable
+            .iter()
+            .map(|&i| Sequence {
+                tokens: all[i].tokens.clone(),
+                candidate_start: all[i].candidate_start,
+            })
+            .collect();
 
         // 全候補に共通する先頭。候補の部分には入り込まない（候補のトークンはトライで扱う）
         let mut prefix_len = seqs.iter().map(|s| s.candidate_start).min().unwrap_or(0);
@@ -257,16 +280,19 @@ impl Scorer {
         }
         let prefix = seqs[0].tokens[..prefix_len].to_vec();
 
-        let mut log_probs = Vec::with_capacity(seqs.len());
+        let mut scored = Vec::with_capacity(seqs.len());
         let mut evaluated = 0;
         let mut reused_first = None;
         for range in chunks(&seqs, prefix_len, BATCH_BUDGET.saturating_sub(prefix.len())) {
             let chunk = self.score_chunk(&seqs[range], &prefix)?;
-            log_probs.extend(chunk.log_probs);
+            scored.extend(chunk.log_probs);
             evaluated += chunk.evaluated_tokens;
             reused_first.get_or_insert(chunk.reused_tokens);
         }
 
+        for (&i, lp) in scorable.iter().zip(scored) {
+            log_probs[i] = lp;
+        }
         let (probs, margin) = distribution(&log_probs, self.config.temperature);
         Ok(Scores {
             log_probs,
@@ -397,6 +423,10 @@ impl Scorer {
         self.cached_prefix.clear();
         let mut out = Vec::with_capacity(seqs.len());
         for s in &seqs {
+            if s.tokens.is_empty() {
+                out.push(f32::NEG_INFINITY);
+                continue;
+            }
             let mut batch = LlamaBatch::new(s.tokens.len().max(1), 1);
             for (pos, &token) in s.tokens.iter().enumerate() {
                 batch
@@ -487,6 +517,11 @@ fn log_softmax(logits: &[f32]) -> Vec<f32> {
 fn distribution(log_probs: &[f32], temperature: f32) -> (Vec<f32>, f32) {
     if log_probs.is_empty() {
         return (Vec::new(), 0.0);
+    }
+    // どの候補も採点できなかったら、確率を均等にする
+    if log_probs.iter().all(|x| x.is_infinite()) {
+        let p = 1.0 / log_probs.len() as f32;
+        return (vec![p; log_probs.len()], 0.0);
     }
     let t = if temperature > 0.0 { temperature } else { 1.0 };
     let scaled: Vec<f32> = log_probs.iter().map(|x| x / t).collect();
