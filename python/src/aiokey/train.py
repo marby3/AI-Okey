@@ -19,6 +19,7 @@ log P(候補 | 文脈, 入力) は「プロンプト + 候補 + EOS」のうち�
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import random
@@ -78,7 +79,7 @@ def encode(tokenizer, example: dict, max_candidates: int, max_length: int = 1024
     candidates = list(dict.fromkeys(example["candidates"]))[:max_candidates]
     if target not in candidates:
         candidates = candidates[: max(max_candidates - 1, 0)] + [target]
-    text = aiokey.prompt("aiokey", example.get("context", ""), example["input"], "")
+    text = aiokey.prompt("aiokey", example["context"], example["input"], "")
     prompt = tokenizer.encode(text.replace("\0", ""), add_special_tokens=False)
     sequences, gold = [], None
     for c in candidates:
@@ -165,8 +166,10 @@ def evaluate(model, examples: list[Encoded], batch_size: int):
 def llama_cpp_dir() -> Path:
     """scripts/fetch-zenz.sh が取ってくる、推論と同じ版の llama.cpp の変換スクリプトの場所。"""
     script = (ROOT / "scripts/fetch-zenz.sh").read_text()
-    commit = re.search(r'^LLAMA_CPP_COMMIT="([0-9a-f]+)"', script, re.M).group(1)
-    return ROOT / f"data/llama.cpp-{commit}"
+    found = re.search(r'^LLAMA_CPP_COMMIT="([0-9a-f]+)"', script, re.M)
+    if not found:
+        raise ValueError("scripts/fetch-zenz.sh: LLAMA_CPP_COMMIT not found (pass --llama-cpp)")
+    return ROOT / f"data/llama.cpp-{found.group(1)}"
 
 
 def export_gguf(model_dir: Path, out: Path, outtype: str, llama_cpp: Path) -> None:
@@ -189,9 +192,16 @@ def read_examples(path: Path):
                 e = json.loads(line)
             except json.JSONDecodeError as err:
                 raise ValueError(f"{path}:{no}: {err}") from None
+            if not isinstance(e, dict):
+                raise ValueError(f"{path}:{no}: expected a JSON object")
             missing = [k for k in ("input", "target", "candidates") if k not in e]
             if missing:
                 raise ValueError(f"{path}:{no}: missing {', '.join(missing)}")
+            # 文脈はなくてもよい（null も空として扱う）
+            e["context"] = e.get("context") or ""
+            strings = [e["context"], e["input"], e["target"]]
+            if not isinstance(e["candidates"], list) or not all(isinstance(x, str) for x in strings + e["candidates"]):
+                raise ValueError(f"{path}:{no}: context, input, target and candidates must be strings")
             yield e
 
 
@@ -225,7 +235,7 @@ def run(args) -> dict:
         optimizer, lambda s: min((s + 1) / warmup, max(0.0, (total_steps - s) / max(1, total_steps - warmup)))
     )
     # GPU では bf16 の自動混合精度で速くする（重みと最適化は f32 のまま）
-    autocast = torch.autocast("cuda", dtype=torch.bfloat16) if device == "cuda" else torch.autocast("cpu", enabled=False)
+    autocast = torch.autocast("cuda", dtype=torch.bfloat16) if device == "cuda" else contextlib.nullcontext()
 
     step, started, history = 0, time.monotonic(), []
     for epoch in range(args.epochs):
@@ -306,7 +316,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--warmup", type=float, default=0.05, help="ウォームアップの割合（全ステップに対して）")
     p.add_argument("--lm-weight", type=float, default=0.1, help="正解文の言語モデル損失の混合比。0 で decision loss だけ")
     p.add_argument("--max-candidates", type=int, default=32, help="1 例あたりの候補の上限（正解は必ず残す）")
-    p.add_argument("--limit", type=int, help="train と dev の先頭からこの数の例だけを使う")
+    p.add_argument("--limit", type=int, help="train と dev のそれぞれで、使える例をこの数まで使う（長すぎて落とした例は数えない）")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--log-every", type=int, default=50)
     p.add_argument("--f32", action="store_true", help="答え合わせ用に f32 の GGUF も書く")
@@ -321,8 +331,8 @@ def main(argv: list[str] | None = None) -> int:
         p.error("--batch-size, --epochs and --max-candidates must be at least 1")
     if args.lm_weight < 0:
         p.error("--lm-weight must not be negative")
-    args.llama_cpp = args.llama_cpp or llama_cpp_dir()
     try:
+        args.llama_cpp = args.llama_cpp or llama_cpp_dir()
         report = run(args)
     except (OSError, ValueError, subprocess.CalledProcessError) as e:
         print(f"error: {e}", file=sys.stderr)

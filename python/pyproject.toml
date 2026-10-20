@@ -16,6 +16,7 @@ dependencies = [
 
 # 段2の学習（python -m aiokey train）に使う。torch は CPU 用と CUDA 用のどちらかを選ぶ：
 #   dev コンテナと CI は --extra cpu、docker/train.Dockerfile（GPU）は --extra cuda
+# 2 つの一覧は torch の取得先（[tool.uv.sources]）だけが違う。中身は同じにしておく。
 [project.optional-dependencies]
 cpu = [
   "torch==2.11.0",

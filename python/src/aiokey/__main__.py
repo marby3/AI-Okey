@@ -22,6 +22,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(prog="aiokey")
     sub = parser.add_subparsers(dest="command", required=True)
+    # train は上で aiokey.train に渡しているので、ここでは aiokey --help に載せるためだけに登録する
     sub.add_parser("train", help="段2を学習する（引数は aiokey train --help）")
     ev = sub.add_parser("eval", help="変換の精度を測り、JSON で出す")
     ev.add_argument("--examples", type=Path, required=True, help="aiokey.datagen が作った JSONL")
