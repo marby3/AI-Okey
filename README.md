@@ -50,6 +50,10 @@ docker compose run --rm dev cargo run --release -p aiokey-cli -- convert htsthqt
 # OS に依存しないクレートのテスト
 docker compose run --rm dev cargo test-portable
 
+# 学習・評価データを作る（Wikipedia の記事を取り出し、例を作る）
+docker compose run --rm dev sh -c "cd python && uv run python -m aiokey.corpus --limit 300 --out ../data/wiki/articles.jsonl"
+docker compose run --rm dev sh -c "cd python && uv run python -m aiokey.datagen --articles ../data/wiki/articles.jsonl --dict ../build/aiokey.dic --out ../data/examples"
+
 # Python パッケージ（データ生成・評価用）のテスト
 docker compose run --rm dev sh -c "cd python && uv run pytest"
 

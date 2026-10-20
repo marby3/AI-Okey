@@ -41,3 +41,16 @@ llama.cpp
 https://github.com/ggml-org/llama.cpp
 License: MIT
 用途: 段2モデルの CPU 推論。
+
+--------------------------------------------------------------------------------
+SudachiPy / SudachiDict
+https://github.com/WorksApplications/sudachi.rs
+https://github.com/WorksApplications/SudachiDict
+License: Apache-2.0
+用途: 学習・評価データの生成で、文に読みを付ける（配布物には含めない）。
+
+--------------------------------------------------------------------------------
+mwparserfromhell
+https://github.com/earwig/mwparserfromhell
+License: MIT
+用途: Wikipedia の wiki 構文を外す（配布物には含めない）。

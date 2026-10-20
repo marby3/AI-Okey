@@ -8,6 +8,11 @@ description = "AI-O Key のデータ生成・評価・学習（変換エンジ�
 requires-python = ">=3.12"
 license = "MIT"
 dynamic = ["version"]
+dependencies = [
+  "mwparserfromhell==0.7.2",
+  "sudachidict-core==20261015",
+  "sudachipy==0.7.0",
+]
 
 [dependency-groups]
 dev = ["pytest==8.4.2"]
@@ -27,4 +32,6 @@ cache-keys = [
   { file = "../crates/aiokey-engine/Cargo.toml" },
   { file = "../crates/aiokey-py/**/*.rs" },
   { file = "../crates/aiokey-py/Cargo.toml" },
+  { file = "../crates/aiokey-dictbuild/**/*.rs" },
+  { file = "../crates/aiokey-dictbuild/data/*" },
 ]
