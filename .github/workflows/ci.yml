@@ -39,7 +39,8 @@ jobs:
         run: uv run --no-project --python 3.12 --with pytest==8.4.2 pytest tests/repo -q
       - name: Python tests (aiokey package)
         working-directory: python
-        run: uv run --python 3.12 pytest -q
+        # 学習のテストに torch（CPU 版）が要る
+        run: uv run --python 3.12 --extra cpu pytest -q
 
   windows:
     runs-on: windows-latest
