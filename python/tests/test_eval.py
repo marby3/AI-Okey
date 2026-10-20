@@ -44,8 +44,11 @@ EXAMPLES = [
 
 
 def test_eval_reports_recall_and_top1_top5(dict_path, tmp_path):
+    # 3 位に来る候補を正解にした例を足し、top-5 が top-1 とも再現率とも違う値になるようにする
+    third = aiokey.Converter(str(dict_path)).convert("kik", 5)[2]
+    examples = EXAMPLES + [example("kik", third, "きき")]
     path = tmp_path / "test.jsonl"
-    path.write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in EXAMPLES))
+    path.write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in examples))
     out = subprocess.run(
         [sys.executable, "-m", "aiokey", "eval", "--examples", str(path), "--dict", str(dict_path), "-k", "32"],
         capture_output=True,
@@ -53,16 +56,18 @@ def test_eval_reports_recall_and_top1_top5(dict_path, tmp_path):
         check=True,
     ).stdout
     report = json.loads(out)
-    assert report["examples"] == 4
-    # 果たして本当に・このkeyboardです は 1 位、開花 は 32 位以内、ぬぽぽぺ は入らない
-    assert report["recall_at_k"] == pytest.approx(3 / 4)
-    assert report["top1"] == pytest.approx(2 / 4)
-    assert 2 / 4 <= report["top5"] <= 3 / 4
+    assert report["examples"] == 5
+    # 果たして本当に・このkeyboardです は 1 位、3 位の候補は 5 位以内、開花 は 6〜32 位、ぬぽぽぺ は入らない
+    assert report["recall_at_k"] == pytest.approx(4 / 5)
+    assert report["top1"] == pytest.approx(2 / 5)
+    assert report["top5"] == pytest.approx(3 / 5)
 
 
 def test_keystroke_reduction_against_romaji():
-    # は た し て ほ ん と う に = 2+2+2+2+2+2+2+1+2 = 17 打鍵（ん は nn）
-    assert evaluate.romaji_keys("はたしてほんとうに") == 17
+    # は た し て ほ ん と う に = 2+2+2+2+2+1+2+1+2 = 16 打鍵
+    # （ん は子音の前なら n の 1 打鍵、母音・や行・な行の前と語末では nn の 2 打鍵）
+    assert evaluate.romaji_keys("はたしてほんとうに") == 16
+    assert evaluate.romaji_keys("こんや") == 2 + 2 + 2
     # っ は次の子音を重ねて 1、ゃ は ky+a で 1 足す、ー は 1、英字はそのまま
     assert evaluate.romaji_keys("まって") == 2 + 1 + 2
     assert evaluate.romaji_keys("きょう") == 3 + 1
@@ -71,7 +76,7 @@ def test_keystroke_reduction_against_romaji():
     report = evaluate.summarize(
         [{**EXAMPLES[0], "candidates": ["果たして本当に"]}], k=32
     )
-    assert report["keystroke_reduction"] == pytest.approx(1 - 9 / 17)
+    assert report["keystroke_reduction"] == pytest.approx(1 - 9 / 16)
 
 
 def test_english_subset_top1_is_reported_separately():
@@ -97,6 +102,7 @@ def test_broken_examples_file_names_the_line(tmp_path):
     path.write_text(json.dumps(EXAMPLES[0], ensure_ascii=False) + "\n{not json\n")
     with pytest.raises(evaluate.ExamplesError, match=":2"):
         list(evaluate.read_examples(path))
-    path.write_text(json.dumps({"input": "k"}) + "\n")
-    with pytest.raises(evaluate.ExamplesError, match=":1"):
-        list(evaluate.read_examples(path))
+    for line in [json.dumps({"input": "k"}), "null", "[1, 2]"]:
+        path.write_text(line + "\n")
+        with pytest.raises(evaluate.ExamplesError, match=":1"):
+            list(evaluate.read_examples(path))
