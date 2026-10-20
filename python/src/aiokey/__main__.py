@@ -27,7 +27,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("-k must be at least 1")
     try:
         report = evaluate(read_examples(args.examples), Converter(str(args.dict)), args.k)
-    except ExamplesError as e:
+    except (ExamplesError, OSError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     print(json.dumps(report, ensure_ascii=False, indent=2))

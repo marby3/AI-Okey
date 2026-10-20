@@ -153,7 +153,9 @@ def main(argv: list[str] | None = None) -> int:
         help="作る分割（カンマ区切り）。評価だけなら test にすると、ほかの記事を読み飛ばして速い",
     )
     args = parser.parse_args(argv)
-    wanted = set(args.splits.split(","))
+    wanted = {s.strip() for s in args.splits.split(",") if s.strip()}
+    if not wanted or not wanted <= {"train", "dev", "test"}:
+        parser.error("--splits takes names from train, dev, test (comma-separated)")
     if args.k < 1:
         parser.error("-k must be at least 1")
 

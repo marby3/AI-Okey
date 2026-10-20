@@ -32,22 +32,34 @@ def romaji_keys(reading: str) -> int:
     """読みを通常のローマ字入力（訓令式・ヘボン式の短い方）で打つときの打鍵数。
 
     - あいうえお は 1、ほかのかなは 2（子音 + 母音）
-    - ん は 2（nn）、っ は 1（次の子音を重ねる）、ー は 1
+    - ん は、子音（な行・や行を除く）の前なら 1（n）、母音・な行・や行の前と語末では 2（nn）
+    - っ は 1（次の子音を重ねる）、ー は 1
     - ゃゅょ は 1 足す（き 2 + ょ 1 = kyo の 3）。小書きの ぁぃぅぇぉゎ は 0（ふぁ = fa）
     - かな以外（英字・数字・記号）は 1 文字 1 打鍵
     """
+    hira = [chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in reading]
     keys = 0
-    for c in reading:
-        h = chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c
-        if h in VOWELS or h in ("っ", "ー") or h in SMALL_YOON:
+    for i, h in enumerate(hira):
+        if h == "ん":
+            nxt = hira[i + 1] if i + 1 < len(hira) else ""
+            keys += 1 if _starts_with_plain_consonant(nxt) else 2
+        elif h in VOWELS or h in ("っ", "ー") or h in SMALL_YOON:
             keys += 1
         elif h in SMALL_VOWELS:
             keys += 0
-        elif h == "ん" or "ぁ" <= h <= "ゖ":
+        elif "ぁ" <= h <= "ゖ":
             keys += 2
         else:
             keys += 1
     return keys
+
+
+# ん を n 1 打鍵で打てない次のかな（母音・な行・や行。nn にしないと別のかなになる）
+_NN_BEFORE = set("あいうえおなにぬねのやゆよ")
+
+
+def _starts_with_plain_consonant(kana: str) -> bool:
+    return "ぁ" <= kana <= "ゖ" and kana not in _NN_BEFORE and kana not in SMALL_VOWELS | SMALL_YOON
 
 
 def read_examples(path: Path) -> Iterator[dict]:
@@ -60,6 +72,11 @@ def read_examples(path: Path) -> Iterator[dict]:
                 e = json.loads(line)
             except json.JSONDecodeError as err:
                 raise ExamplesError(f"{path}:{no}: not JSON: {err}") from err
+            if not isinstance(e, dict):
+                raise ExamplesError(f"{path}:{no}: not a JSON object")
+            tokens = e.get("tokens", [])
+            if not isinstance(tokens, list) or not all(isinstance(t, dict) for t in tokens):
+                raise ExamplesError(f"{path}:{no}: tokens must be a list of objects")
             missing = [key for key in REQUIRED if not isinstance(e.get(key), str)]
             if missing:
                 raise ExamplesError(f"{path}:{no}: missing {', '.join(missing)}")
@@ -120,6 +137,7 @@ def summarize(examples: Iterable[dict], k: int) -> dict:
 
 
 def evaluate(examples: Iterable[dict], converter, k: int) -> dict:
-    """例の入力を段1にかけ直して、指標をまとめる。"""
+    """例の入力を段1にかけ直して、指標をまとめる。`converter` は `convert(input, k) -> list[str]` を持つもの
+    （`aiokey.Converter`）。"""
     scored = ({**e, "candidates": converter.convert(e["input"], k)} for e in examples)
     return summarize(scored, k)
