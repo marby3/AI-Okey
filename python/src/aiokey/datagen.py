@@ -147,7 +147,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--truncate-rate", type=float, default=Config.truncate_rate)
     parser.add_argument("--context-rate", type=float, default=Config.context_rate)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--splits",
+        default="train,dev,test",
+        help="作る分割（カンマ区切り）。評価だけなら test にすると、ほかの記事を読み飛ばして速い",
+    )
     args = parser.parse_args(argv)
+    wanted = {s.strip() for s in args.splits.split(",") if s.strip()}
+    if not wanted or not wanted <= {"train", "dev", "test"}:
+        parser.error("--splits takes names from train, dev, test (comma-separated)")
     if args.k < 1:
         parser.error("-k must be at least 1")
 
@@ -155,9 +163,12 @@ def main(argv: list[str] | None = None) -> int:
     from aiokey import Converter
 
     config = Config(args.vowel_rate, args.truncate_rate, args.context_rate, args.seed)
-    examples, missing = generate(_read_articles(args.articles), Converter(str(args.dict)), config, args.k)
+    articles = (a for a in _read_articles(args.articles) if split_of(a[0]) in wanted)
+    examples, missing = generate(articles, Converter(str(args.dict)), config, args.k)
     args.out.mkdir(parents=True, exist_ok=True)
     for name, part in split_examples(examples).items():
+        if name not in wanted:
+            continue
         with open(args.out / f"{name}.jsonl", "w", encoding="utf-8") as f:
             for e in part:
                 f.write(json.dumps(e, ensure_ascii=False) + "\n")
