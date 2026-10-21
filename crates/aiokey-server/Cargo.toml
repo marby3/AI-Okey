@@ -5,15 +5,25 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+aiokey-engine = { path = "../aiokey-engine" }
 aiokey-ipc = { path = "../aiokey-ipc" }
+aiokey-scorer = { path = "../aiokey-scorer" }
+serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.42.0", features = ["full"] }
+toml = "0.8.19"
 tonic = "0.12.3"
 tonic-reflection = "0.12.3"
 
 [target.'cfg(windows)'.dependencies]
 async-stream = "0.3.6"
 futures-core = "0.3.31"
-windows = { version = "0.58.0", features = ["Win32_Security_Authorization"] }
+windows = { version = "0.58.0", features = ["Win32_Security_Authorization", "Win32_System_Threading"] }
 
 [target.'cfg(unix)'.dependencies]
+libc = "0.2"
 tokio-stream = { version = "0.1", features = ["net"] }
+
+[dev-dependencies]
+aiokey-dictbuild = { path = "../aiokey-dictbuild" }
+hyper-util = { version = "0.1.9", features = ["tokio"] }
+tower = "0.5.1"

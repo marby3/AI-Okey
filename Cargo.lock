@@ -101,13 +101,21 @@ dependencies = [
 name = "aiokey-server"
 version = "0.9.2"
 dependencies = [
+ "aiokey-dictbuild",
+ "aiokey-engine",
  "aiokey-ipc",
+ "aiokey-scorer",
  "async-stream",
  "futures-core",
+ "hyper-util",
+ "libc",
+ "serde",
  "tokio",
  "tokio-stream",
+ "toml",
  "tonic",
  "tonic-reflection",
+ "tower 0.5.2",
  "windows",
 ]
 
