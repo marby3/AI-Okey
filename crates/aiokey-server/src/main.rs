@@ -44,7 +44,13 @@ fn config_path() -> Result<PathBuf, String> {
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
         .map(|d| d.join("aiokey"));
-    Ok(dir.unwrap_or_default().join("config.toml"))
+    match dir {
+        Some(dir) => Ok(dir.join("config.toml")),
+        None => {
+            eprintln!("aiokey-server: no config directory (APPDATA / XDG_CONFIG_HOME / HOME); using ./config.toml");
+            Ok(PathBuf::from("config.toml"))
+        }
+    }
 }
 
 #[cfg(unix)]

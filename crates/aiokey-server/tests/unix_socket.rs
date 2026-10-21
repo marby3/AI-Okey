@@ -2,7 +2,8 @@
 //!
 //! サーバーのバイナリを起動し、XDG_RUNTIME_DIR に作られるソケットへ gRPC でつなぐ。
 //! 辞書は Mozc のデータ（`scripts/fetch-mozc.sh` で取得）から作る。
-#![cfg(unix)]
+// nice を /proc から読むので Linux に限る
+#![cfg(target_os = "linux")]
 
 use std::path::PathBuf;
 use std::process::{Child, Command};

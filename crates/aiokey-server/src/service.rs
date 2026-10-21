@@ -26,6 +26,9 @@ use tonic::{Request, Response, Status};
 
 use crate::config::{Config, Stage2Config};
 
+/// GetComposingText と Convert で、段2の結果を待つ時間の上限。
+const MAX_WAIT: Duration = Duration::from_secs(10);
+
 /// 段2の採点器。候補（表記, 読み）ごとの点数（大きいほどよい）を返す。
 pub trait Reranker: Send {
     fn score(
@@ -92,6 +95,8 @@ struct Session {
     order: Option<Vec<usize>>,
     /// 今の revision について、段2が済んだ（または呼ばないと決めた）か
     settled: bool,
+    /// 採点中の revision（同じ入力を 2 回採点しないため）
+    scoring: Option<u64>,
 }
 
 struct Stage2 {
@@ -154,8 +159,17 @@ impl ConversionService {
     /// 入力を変えて段1をやり直し、応答を返す。
     fn edit(&self, f: impl FnOnce(&mut Session)) -> ComposingText {
         let mut session = self.inner.session.lock().unwrap();
+        let before = (
+            session.input.clone(),
+            session.cursor,
+            session.context.clone(),
+        );
         f(&mut session);
         session.cursor = session.cursor.min(session.input.len());
+        // 何も変わらなければ（先頭での RemoveText など）、計算し直さない
+        if (&session.input, session.cursor, &session.context) == (&before.0, before.1, &before.2) {
+            return composing_text(&session);
+        }
         let text: String = session.input[..session.cursor].iter().collect();
         session.candidates = if text.is_empty() {
             Vec::new()
@@ -180,6 +194,22 @@ impl ConversionService {
 
     fn current(&self) -> ComposingText {
         composing_text(&self.inner.session.lock().unwrap())
+    }
+
+    /// 今の入力について段2が済む（または呼ばないと決まる）まで、`wait` を上限に待つ。
+    async fn wait_settled(&self, wait: Duration) {
+        let mut settled = self.inner.settled.subscribe();
+        let _ = tokio::time::timeout(wait.min(MAX_WAIT), async {
+            loop {
+                if self.inner.session.lock().unwrap().settled {
+                    return;
+                }
+                if settled.changed().await.is_err() {
+                    return;
+                }
+            }
+        })
+        .await;
     }
 }
 
@@ -262,14 +292,18 @@ async fn unload_when_idle(inner: Weak<Inner>) {
 
 /// `revision` の入力を段2で並べ替える。段1が迷っていなければ呼ばない。途中で入力が変わったら結果を捨てる。
 async fn run_stage2(inner: &Arc<Inner>, revision: u64) {
-    let Some(stage2) = &inner.stage2 else { return };
+    if inner.stage2.is_none() {
+        return;
+    }
     let job = {
         let mut session = inner.session.lock().unwrap();
-        if session.revision != revision || session.settled {
+        // 済んでいるか、ほかの要求が採点中なら何もしない（Convert はその結果を待つ）
+        if session.revision != revision || session.settled || session.scoring == Some(revision) {
             return;
         }
         let c = &session.candidates;
-        let confident = c.len() < 2 || c[1].cost - c[0].cost >= inner.config.stage2.skip_cost_gap;
+        let confident =
+            c.len() < 2 || c[1].cost.saturating_sub(c[0].cost) >= inner.config.stage2.skip_cost_gap;
         if confident {
             session.settled = true;
             let _ = inner.settled.send(revision);
@@ -281,6 +315,7 @@ async fn run_stage2(inner: &Arc<Inner>, revision: u64) {
             .map(|c| (c.surface.clone(), c.reading.clone()))
             .collect();
         let input: String = session.input[..session.cursor].iter().collect();
+        session.scoring = Some(revision);
         (session.context.clone(), input, pairs)
     };
 
@@ -298,9 +333,11 @@ async fn run_stage2(inner: &Arc<Inner>, revision: u64) {
     })
     .await
     .unwrap_or_else(|e| Err(e.to_string()));
-    *stage2.last_used.lock().unwrap() = Instant::now();
 
     let mut session = inner.session.lock().unwrap();
+    if session.scoring == Some(revision) {
+        session.scoring = None;
+    }
     if session.revision != revision {
         return; // 古い入力の結果は捨てる
     }
@@ -418,6 +455,8 @@ impl AiokeyService for ConversionService {
     ) -> Result<Response<ConvertResponse>, Status> {
         let revision = self.inner.session.lock().unwrap().revision;
         run_stage2(&self.inner, revision).await;
+        // 裏で同じ入力を採点中なら、その結果を待つ
+        self.wait_settled(MAX_WAIT).await;
         Ok(Response::new(ConvertResponse {
             composing_text: Some(self.current()),
         }))
@@ -428,18 +467,7 @@ impl AiokeyService for ConversionService {
         request: Request<GetComposingTextRequest>,
     ) -> Result<Response<GetComposingTextResponse>, Status> {
         let wait = Duration::from_millis(request.into_inner().wait_ms as u64);
-        let mut settled = self.inner.settled.subscribe();
-        let _ = tokio::time::timeout(wait, async {
-            loop {
-                if self.inner.session.lock().unwrap().settled {
-                    return;
-                }
-                if settled.changed().await.is_err() {
-                    return;
-                }
-            }
-        })
-        .await;
+        self.wait_settled(wait).await;
         Ok(Response::new(GetComposingTextResponse {
             composing_text: Some(self.current()),
         }))
