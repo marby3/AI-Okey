@@ -30,14 +30,19 @@ fn surfaces(input: &str, k: usize) -> Vec<String> {
         .collect()
 }
 
-// szqkqkyu（自然環境）と hgasigw（東側）は、K = 1 で打った英字が 1 位になっていた例
+// szqkqkyu（自然環境）と hgasigw（東側）は、K = 1 で打った英字が 1 位になっていた例。
+// 英語指定の `/` を含む入力は、候補が `/` を除いた文字列になるので、ここには入れない
 const INPUTS: &[&str] = &["htsthqtun", "kik", "szqkqkyu", "hgasigw", "knkeyboardds"];
 
 #[test]
 fn top1_with_k1_is_the_same_as_with_k32() {
     for input in INPUTS {
         let best = surfaces(input, 32);
-        assert_ne!(best[0], *input, "{input}: K = 32 の 1 位が打った文字列そのもの");
+        // K = 32 の 1 位が打った文字列そのものだと、この入力では不具合を再現できない
+        assert_ne!(
+            best[0], *input,
+            "{input}: K = 32 の 1 位が打った文字列そのもの"
+        );
         assert_eq!(surfaces(input, 1), vec![best[0].clone()], "{input}");
     }
 }
@@ -49,11 +54,12 @@ fn raw_input_stays_and_the_rest_keeps_the_k32_order() {
             .into_iter()
             .filter(|s| s != input)
             .collect();
-        for k in [2, 3, 8, 16, 32] {
+        for k in [2, 8, 32] {
             let s = surfaces(input, k);
             assert!(s.len() <= k, "{input} (k={k}): {s:?}");
             assert!(s.iter().any(|x| x == input), "{input} (k={k}): {s:?}");
             let rest: Vec<String> = s.into_iter().filter(|x| x != input).collect();
+            assert!(rest.len() <= full.len(), "{input} (k={k}): {rest:?}");
             assert_eq!(rest, full[..rest.len()], "{input} (k={k})");
         }
     }

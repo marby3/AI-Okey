@@ -130,7 +130,7 @@ fn without_english_prefixes(input: &str) -> String {
 /// 入力した文字列そのもの（英語指定の印の `/` は除く）を、必ず候補に入れる。
 ///
 /// 候補がすでに K 件あれば最後の 1 件と入れ替える。並びが崩れないよう、コストは
-/// ほかの候補のいちばん大きいコスト以上にする。ただし K = 1 で候補があるときは、
+/// ほかの候補のいちばん大きいコスト以上にする。ただし K = 1 で、すでに 1 件以上の候補があるときは、
 /// いちばんよい候補を優先して入れない（#30）。
 fn add_raw_input(input: &str, len: usize, candidates: &mut Vec<Candidate>, k: usize) {
     let raw = without_english_prefixes(input);
