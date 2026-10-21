@@ -12,6 +12,8 @@ message Suggestion {
 message ComposingText {
   string hiragana = 1; // The main text content.
   repeated Suggestion suggestions = 2; // List of suggestions for the text.
+  uint64 revision = 3; // 入力が変わるたびに増える番号（段2の結果がどの入力のものかを見分ける）
+  bool reranked = 4;   // 候補が段2で並べ替え済みか
 }
 
 // Request message for AppendText.
@@ -63,6 +65,20 @@ message SetContextRequest {
 
 message SetContextResponse {}
 
+// 変換キー：今の入力をすぐ段2で並べ替える（段1の確信度が高ければ段1のまま）
+message ConvertRequest {}
+message ConvertResponse {
+  ComposingText composing_text = 1;
+}
+
+// 今の入力の最新の候補。wait_ms まで、段2の結果（または段2を飛ばすという判断）を待つ
+message GetComposingTextRequest {
+  uint32 wait_ms = 1;
+}
+message GetComposingTextResponse {
+  ComposingText composing_text = 1;
+}
+
 message UpdateConfigRequest {}
 message UpdateConfigResponse {}
 
@@ -76,4 +92,6 @@ service AiokeyService {
   rpc ClearText (ClearTextRequest) returns (ClearTextResponse);
   rpc SetContext (SetContextRequest) returns (SetContextResponse);
   rpc UpdateConfig (UpdateConfigRequest) returns (UpdateConfigResponse);
+  rpc Convert (ConvertRequest) returns (ConvertResponse);
+  rpc GetComposingText (GetComposingTextRequest) returns (GetComposingTextResponse);
 }
