@@ -54,13 +54,14 @@ fn skeleton_interpretation_stays_next_to_the_english_word() {
     );
 }
 
+// K = 1 では、いちばんよい候補を優先して打った文字列は入れない（#30、tests/k_order.rs）
 #[test]
 fn raw_input_is_always_a_candidate() {
     for (input, k) in [
         ("htsthqtun", 32),
         ("htsthqtun", 3),
         ("zzzz", 32),
-        ("kik", 1),
+        ("kik", 2),
     ] {
         let candidates = convert(dictionary(), input, &Options { k });
         assert!(candidates.len() <= k);
