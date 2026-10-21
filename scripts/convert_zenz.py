@@ -25,17 +25,24 @@ import gguf  # noqa: E402
 
 conversion.base.TextModel.get_vocab_base_pre = lambda self, tokenizer: "gpt-2"
 
+# 変換器は SpecialVocab を中で作るので、外から ID を渡す口がない。このスクリプトは変換 1 回だけのプロセスなので、
+# 読み込みの関数を差し替えて、読んだあとに ID を付け直す
 _load = gguf.SpecialVocab._load
+SPECIAL = ("bos", "eos", "unk", "pad")
 
 
 def _load_from_vocab(self, path):
     _load(self, path)
     tokens = json.loads((path / "special_tokens_map.json").read_text(encoding="utf-8"))
     vocab = json.loads((path / "vocab.json").read_text(encoding="utf-8"))
-    for kind, token in tokens.items():
-        token = token["content"] if isinstance(token, dict) else token
-        if kind.endswith("_token") and token in vocab:
-            self.special_token_ids[kind.removesuffix("_token")] = vocab[token]
+    for kind in SPECIAL:
+        token = tokens.get(f"{kind}_token")
+        token = token.get("content") if isinstance(token, dict) else token
+        if isinstance(token, str) and token in vocab:
+            self.special_token_ids[kind] = vocab[token]
+        elif kind == "eos":
+            # EOS を決められないまま config.json の値で書くと、#26 の誤りに戻るので止める
+            sys.exit(f"{path}: eos_token is not in special_tokens_map.json and vocab.json")
 
 
 gguf.SpecialVocab._load = _load_from_vocab

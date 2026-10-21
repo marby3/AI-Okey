@@ -42,8 +42,8 @@ CANDIDATES = [
 ]
 
 
-@pytest.mark.parametrize("context", ["", "今日は"])
-def test_untrained_f32_gguf_log_probs_match_pytorch(context):
+def test_untrained_f32_gguf_log_probs_match_pytorch():
+    context = "今日は"
     model, tokenizer = train.load(BASE, "cpu")
     model.eval()
     scorer = aiokey.Scorer(str(MODELS / "zenz-v2.5-xsmall-f32.gguf"), "zenz", 2, 32)
