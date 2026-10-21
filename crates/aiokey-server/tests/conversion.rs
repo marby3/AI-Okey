@@ -157,7 +157,7 @@ async fn session_operations_convert_character_by_character() {
         .unwrap();
     assert_eq!(texts(&removed), texts(&last));
 
-    // カーソルを 3 文字戻すと、カーソルより前（htsthq）の候補になる
+    // カーソルを 3 文字戻すと、カーソルより前（htsthq ＝ はたしてほん）の候補になる
     let moved = s
         .move_cursor(Request::new(MoveCursorRequest { offset: -3 }))
         .await
@@ -167,7 +167,7 @@ async fn session_operations_convert_character_by_character() {
         .unwrap();
     assert!(moved.suggestions.iter().all(|x| x.corresponding_count == 6));
     assert!(
-        texts(&moved).iter().any(|t| t == "果たして"),
+        texts(&moved).iter().any(|t| t == "果たして本"),
         "{:?}",
         texts(&moved)
     );
@@ -272,6 +272,8 @@ async fn idle_model_is_released_and_reloaded() {
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert!(!h.service.stage2_loaded());
     assert_eq!(h.loads.load(Ordering::SeqCst), 1);
+    // 次に段2が要るとき（入力が変わって変換キーを押したとき）に読み込み直す
+    append(&h.service, "s").await;
     convert(&h.service).await;
     assert!(h.service.stage2_loaded());
     assert_eq!(h.loads.load(Ordering::SeqCst), 2);
