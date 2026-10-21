@@ -1,8 +1,30 @@
 //! サーバーの設定（TOML）。
+//!
+//! ```toml
+//! dictionary = "aiokey.dic"        # 省略すると実行ファイルと同じフォルダの aiokey.dic
+//! k = 32                           # 段1の候補の数
+//! priority = "below_normal"        # normal / below_normal / idle
+//!
+//! [stage2]
+//! model = "aiokey-stage2-q8_0.gguf" # 省略すると段2を使わない
+//! format = "aiokey"                # aiokey / zenz
+//! threads = 2                      # 推論のスレッド数
+//! max_candidates = 32              # 段2で採点する候補の上限
+//! temperature = 1.0
+//! debounce_ms = 30                 # キー入力がこの時間止まったら段2を動かす
+//! skip_cost_gap = 3000             # 段1の 1 位と 2 位のコスト差がこれ以上なら段2を呼ばない
+//! unload_after_secs = 600          # この時間使わなければ段2のモデルを解放する
+//! ```
+//!
+//! 相対パスは設定ファイルのあるフォルダから数える。数値はどれも暫定の既定値で、計測して見直す。
+
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use serde::Deserialize;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Priority {
     Normal,
     BelowNormal,
@@ -11,19 +33,25 @@ pub enum Priority {
 
 #[derive(Debug, Clone)]
 pub struct Stage2Config {
+    /// 段2の GGUF。None なら段2を使わない
     pub model: Option<PathBuf>,
     pub format: String,
     pub threads: i32,
     pub max_candidates: usize,
     pub temperature: f32,
+    /// キー入力がこの時間止まったら段2を動かす
     pub debounce: Duration,
+    /// 段1の 1 位と 2 位のコスト差がこれ以上なら、段2を呼ばない
     pub skip_cost_gap: i32,
+    /// この時間使わなければ、段2のモデルを解放する
     pub unload_after: Duration,
 }
 
 #[derive(Debug, Clone)]
 pub struct Config {
+    /// 辞書。None なら実行ファイルと同じフォルダの aiokey.dic
     pub dictionary: Option<PathBuf>,
+    /// 段1の候補の数
     pub k: usize,
     pub priority: Priority,
     pub stage2: Stage2Config,
@@ -31,16 +59,95 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        todo!()
+        Self {
+            dictionary: None,
+            k: 32,
+            priority: Priority::BelowNormal,
+            stage2: Stage2Config {
+                model: None,
+                format: "aiokey".into(),
+                threads: 2,
+                max_candidates: 32,
+                temperature: 1.0,
+                debounce: Duration::from_millis(30),
+                skip_cost_gap: 3000,
+                unload_after: Duration::from_secs(600),
+            },
+        }
     }
 }
 
+/// TOML の形。書かれていない項目は既定値のまま。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct File {
+    dictionary: Option<PathBuf>,
+    k: Option<usize>,
+    priority: Option<Priority>,
+    stage2: Option<Stage2File>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Stage2File {
+    model: Option<PathBuf>,
+    format: Option<String>,
+    threads: Option<i32>,
+    max_candidates: Option<usize>,
+    temperature: Option<f32>,
+    debounce_ms: Option<u64>,
+    skip_cost_gap: Option<i32>,
+    unload_after_secs: Option<f64>,
+}
+
 impl Config {
-    pub fn from_toml(_text: &str) -> Result<Self, String> {
-        todo!()
+    pub fn from_toml(text: &str) -> Result<Self, String> {
+        let file: File = toml::from_str(text).map_err(|e| e.to_string())?;
+        let mut config = Config::default();
+        config.dictionary = file.dictionary;
+        config.k = file.k.unwrap_or(config.k);
+        config.priority = file.priority.unwrap_or(config.priority);
+        if let Some(s) = file.stage2 {
+            let c = &mut config.stage2;
+            c.model = s.model;
+            c.format = s.format.unwrap_or(c.format.clone());
+            c.threads = s.threads.unwrap_or(c.threads);
+            c.max_candidates = s.max_candidates.unwrap_or(c.max_candidates);
+            c.temperature = s.temperature.unwrap_or(c.temperature);
+            if let Some(ms) = s.debounce_ms {
+                c.debounce = Duration::from_millis(ms);
+            }
+            c.skip_cost_gap = s.skip_cost_gap.unwrap_or(c.skip_cost_gap);
+            if let Some(secs) = s.unload_after_secs {
+                c.unload_after = Duration::try_from_secs_f64(secs)
+                    .map_err(|e| format!("unload_after_secs: {e}"))?;
+            }
+        }
+        if config.k == 0 || !matches!(config.stage2.format.as_str(), "aiokey" | "zenz") {
+            return Err("k must be at least 1, and stage2.format must be aiokey or zenz".into());
+        }
+        Ok(config)
     }
 
-    pub fn load(_path: &Path) -> (Self, Option<String>) {
-        todo!()
+    /// 設定ファイルを読む。ファイルがなければ既定値。読めない・正しくないときは、IME が動かなくならないよう
+    /// 既定値で続け、警告の文を返す。相対パスは設定ファイルのあるフォルダから数える。
+    pub fn load(path: &Path) -> (Self, Option<String>) {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Config::default(), None),
+            Err(e) => return (Config::default(), Some(format!("{}: {e}", path.display()))),
+        };
+        match Config::from_toml(&text) {
+            Ok(mut config) => {
+                let base = path.parent().unwrap_or(Path::new("."));
+                config.dictionary = config.dictionary.map(|p| base.join(p));
+                config.stage2.model = config.stage2.model.map(|p| base.join(p));
+                (config, None)
+            }
+            Err(e) => (
+                Config::default(),
+                Some(format!("{}: {e} (using the defaults)", path.display())),
+            ),
+        }
     }
 }
