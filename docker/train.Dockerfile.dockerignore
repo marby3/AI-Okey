@@ -1,0 +1,11 @@
+# docker/train.Dockerfile のビルドに渡すもの（データとビルド成果物は渡さない）
+*
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!crates/
+!python/
+!scripts/
+python/.venv
+**/target
+**/__pycache__

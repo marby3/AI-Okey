@@ -7,7 +7,7 @@ use std::sync::Mutex;
 
 use aiokey_engine::convert::{convert, Options};
 use aiokey_engine::dict::Dictionary;
-use aiokey_scorer::{Config, PromptFormat, Request, Scorer as ScorerImpl};
+use aiokey_scorer::{Config, PromptFormat, Request, Scorer as ScorerImpl, Scores};
 use pyo3::exceptions::{PyOSError, PyValueError};
 use pyo3::prelude::*;
 
@@ -83,6 +83,26 @@ impl Converter {
     }
 }
 
+fn prompt_format(name: &str) -> PyResult<PromptFormat> {
+    match name {
+        "zenz" => Ok(PromptFormat::ZenzV25),
+        "aiokey" => Ok(PromptFormat::Aiokey),
+        other => Err(PyValueError::new_err(format!("unknown format: {other}"))),
+    }
+}
+
+/// 段2で候補の前に置くプロンプト（学習でも採点器と同じものを使うため）。
+#[pyfunction]
+#[pyo3(name = "prompt")]
+fn build_prompt(format: &str, context: &str, input: &str, reading: &str) -> PyResult<String> {
+    Ok(aiokey_scorer::prompt(
+        prompt_format(format)?,
+        context,
+        input,
+        reading,
+    ))
+}
+
 /// 段2の採点器（zenz の GGUF を llama.cpp で動かす）。
 #[pyclass(frozen)]
 struct Scorer {
@@ -101,11 +121,7 @@ impl Scorer {
         max_candidates: usize,
         temperature: f32,
     ) -> PyResult<Self> {
-        let format = match format {
-            "zenz" => PromptFormat::ZenzV25,
-            "aiokey" => PromptFormat::Aiokey,
-            other => return Err(PyValueError::new_err(format!("unknown format: {other}"))),
-        };
+        let format = prompt_format(format)?;
         let config = Config {
             threads,
             format,
@@ -126,6 +142,30 @@ impl Scorer {
         input: &str,
         candidates: Vec<(String, String)>,
     ) -> PyResult<(Vec<f32>, f32)> {
+        let scores = self.run(py, context, input, candidates)?;
+        Ok((scores.probs, scores.margin))
+    }
+
+    /// 候補ごとの log P(候補 | 文脈, 入力) を返す（温度をかける前の値。学習側との答え合わせ用）。
+    fn log_probs(
+        &self,
+        py: Python<'_>,
+        context: &str,
+        input: &str,
+        candidates: Vec<(String, String)>,
+    ) -> PyResult<Vec<f32>> {
+        Ok(self.run(py, context, input, candidates)?.log_probs)
+    }
+}
+
+impl Scorer {
+    fn run(
+        &self,
+        py: Python<'_>,
+        context: &str,
+        input: &str,
+        candidates: Vec<(String, String)>,
+    ) -> PyResult<Scores> {
         py.allow_threads(|| {
             let req = Request {
                 context,
@@ -139,8 +179,7 @@ impl Scorer {
                 .inner
                 .lock()
                 .map_err(|_| PyValueError::new_err("scorer is poisoned"))?;
-            let scores = inner.score(&req).map_err(PyValueError::new_err)?;
-            Ok((scores.probs, scores.margin))
+            inner.score(&req).map_err(PyValueError::new_err)
         })
     }
 }
@@ -151,6 +190,7 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(units, m)?)?;
     m.add_function(wrap_pyfunction!(build_dictionary, m)?)?;
     m.add_function(wrap_pyfunction!(read_english_tsv, m)?)?;
+    m.add_function(wrap_pyfunction!(build_prompt, m)?)?;
     m.add_class::<Converter>()?;
     m.add_class::<Scorer>()?;
     Ok(())

@@ -1,6 +1,7 @@
 """aiokey のコマンド。
 
     python -m aiokey eval --examples data/examples/test.jsonl --dict build/aiokey.dic [-k 32]
+    python -m aiokey train --train data/examples/train.jsonl --dev data/examples/dev.jsonl --out build/stage2
 """
 
 from __future__ import annotations
@@ -12,8 +13,17 @@ from pathlib import Path
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    # 学習は torch を読み込むので、train のときだけ aiokey.train に任せる（引数もそちらで解釈する）
+    if argv[:1] == ["train"]:
+        from aiokey import train
+
+        return train.main(argv[1:])
+
     parser = argparse.ArgumentParser(prog="aiokey")
     sub = parser.add_subparsers(dest="command", required=True)
+    # train は上で aiokey.train に渡しているので、ここでは aiokey --help に載せるためだけに登録する
+    sub.add_parser("train", help="段2を学習する（引数は aiokey train --help）")
     ev = sub.add_parser("eval", help="変換の精度を測り、JSON で出す")
     ev.add_argument("--examples", type=Path, required=True, help="aiokey.datagen が作った JSONL")
     ev.add_argument("--dict", type=Path, default=Path("build/aiokey.dic"))
