@@ -7,12 +7,7 @@ use windows::{
 
 use anyhow::Result;
 
-#[derive(Default, Clone, PartialEq, Debug)]
-pub enum InputMode {
-    #[default]
-    Latin,
-    Kana,
-}
+pub use aiokey_keymap::InputMode;
 
 impl TextServiceFactory {
     pub fn update_lang_bar(&self) -> Result<()> {

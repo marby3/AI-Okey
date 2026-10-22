@@ -1,7 +1,7 @@
 use std::cmp::{max, min};
 
 use crate::{
-    engine::user_action::UserAction,
+    engine::user_action::key_from_wparam,
     extension::VKeyExt as _,
     tsf::factory::{TextServiceFactory, TextServiceFactory_Impl},
 };
@@ -13,7 +13,6 @@ use super::{
     ipc_service::Candidates,
     state::IMEState,
     text_util::{to_half_katakana, to_katakana},
-    user_action::{Function, Navigation},
 };
 use windows::Win32::{
     Foundation::WPARAM,
@@ -25,14 +24,8 @@ use windows::Win32::{
 
 use anyhow::{Context, Result};
 
-#[derive(Default, Clone, PartialEq, Debug)]
-pub enum CompositionState {
-    #[default]
-    None,
-    Composing,
-    Previewing,
-    Selecting,
-}
+// 状態の移り変わりは OS に依存しない aiokey-keymap にある
+pub use aiokey_keymap::CompositionState;
 
 #[derive(Default, Clone, Debug)]
 pub struct Composition {
@@ -45,6 +38,9 @@ pub struct Composition {
 
     pub selection_index: i32,
     pub candidates: Candidates,
+
+    /// 確定した文（サーバーに文脈として送ったもの）
+    pub context: String,
 
     pub state: CompositionState,
     pub tip_composition: Option<ITfComposition>,
@@ -83,225 +79,24 @@ impl TextServiceFactory {
             return Ok(None);
         }
 
-        #[allow(clippy::let_and_return)]
         let (composition, mode) = {
             let text_service = self.borrow()?;
             let composition = text_service.borrow_composition()?.clone();
-            let mode = IMEState::get()?.input_mode.clone();
+            let mode = IMEState::get()?.input_mode;
             (composition, mode)
         };
 
-        let action = UserAction::try_from(wparam.0)?;
-
-        let (transition, actions) = match composition.state {
-            CompositionState::None => match action {
-                UserAction::Input(char) if mode == InputMode::Kana => (
-                    CompositionState::Composing,
-                    vec![
-                        ClientAction::StartComposition,
-                        ClientAction::AppendText(char.to_string()),
-                    ],
-                ),
-                UserAction::Number(number) if mode == InputMode::Kana => (
-                    CompositionState::Composing,
-                    vec![
-                        ClientAction::StartComposition,
-                        ClientAction::AppendText(number.to_string()),
-                    ],
-                ),
-                UserAction::ToggleInputMode => (
-                    CompositionState::None,
-                    vec![match mode {
-                        InputMode::Kana => ClientAction::SetIMEMode(InputMode::Latin),
-                        InputMode::Latin => ClientAction::SetIMEMode(InputMode::Kana),
-                    }],
-                ),
-                _ => {
-                    return Ok(None);
-                }
-            },
-            CompositionState::Composing => match action {
-                UserAction::Input(char) => (
-                    CompositionState::Composing,
-                    vec![ClientAction::AppendText(char.to_string())],
-                ),
-                UserAction::Number(number) => (
-                    CompositionState::Composing,
-                    vec![ClientAction::AppendText(number.to_string())],
-                ),
-                UserAction::Backspace => {
-                    if composition.preview.chars().count() == 1 {
-                        (
-                            CompositionState::None,
-                            vec![ClientAction::RemoveText, ClientAction::EndComposition],
-                        )
-                    } else {
-                        (CompositionState::Composing, vec![ClientAction::RemoveText])
-                    }
-                }
-                UserAction::Enter => {
-                    if composition.suffix.is_empty() {
-                        (CompositionState::None, vec![ClientAction::EndComposition])
-                    } else {
-                        (
-                            CompositionState::Composing,
-                            vec![ClientAction::ShrinkText("".to_string())],
-                        )
-                    }
-                }
-                UserAction::Escape => (
-                    CompositionState::None,
-                    vec![ClientAction::RemoveText, ClientAction::EndComposition],
-                ),
-                UserAction::Navigation(direction) => match direction {
-                    Navigation::Right => (
-                        CompositionState::Composing,
-                        vec![ClientAction::MoveCursor(1)],
-                    ),
-                    Navigation::Left => (
-                        CompositionState::Composing,
-                        vec![ClientAction::MoveCursor(-1)],
-                    ),
-                    Navigation::Up => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetSelection(SetSelectionType::Up)],
-                    ),
-                    Navigation::Down => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetSelection(SetSelectionType::Down)],
-                    ),
-                },
-                UserAction::ToggleInputMode => (
-                    CompositionState::None,
-                    vec![
-                        ClientAction::EndComposition,
-                        ClientAction::SetIMEMode(InputMode::Latin),
-                    ],
-                ),
-                UserAction::Space | UserAction::Tab => (
-                    CompositionState::Previewing,
-                    vec![ClientAction::SetSelection(SetSelectionType::Down)],
-                ),
-                UserAction::Function(key) => match key {
-                    Function::Six => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::Hiragana)],
-                    ),
-                    Function::Seven => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::Katakana)],
-                    ),
-                    Function::Eight => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::HalfKatakana)],
-                    ),
-                    Function::Nine => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::FullLatin)],
-                    ),
-                    Function::Ten => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::HalfLatin)],
-                    ),
-                },
-                _ => {
-                    return Ok(None);
-                }
-            },
-            CompositionState::Previewing => match action {
-                UserAction::Input(char) => (
-                    CompositionState::Composing,
-                    vec![ClientAction::ShrinkText(char.to_string())],
-                ),
-                UserAction::Number(number) => (
-                    CompositionState::Composing,
-                    vec![ClientAction::ShrinkText(number.to_string())],
-                ),
-                UserAction::Backspace => {
-                    if composition.preview.chars().count() == 1 {
-                        (
-                            CompositionState::None,
-                            vec![ClientAction::RemoveText, ClientAction::EndComposition],
-                        )
-                    } else {
-                        (CompositionState::Composing, vec![ClientAction::RemoveText])
-                    }
-                }
-                UserAction::Enter => {
-                    if composition.suffix.is_empty() {
-                        (CompositionState::None, vec![ClientAction::EndComposition])
-                    } else {
-                        (
-                            CompositionState::Composing,
-                            vec![ClientAction::ShrinkText("".to_string())],
-                        )
-                    }
-                }
-                UserAction::Escape => (
-                    CompositionState::None,
-                    vec![ClientAction::RemoveText, ClientAction::EndComposition],
-                ),
-                UserAction::Navigation(direction) => match direction {
-                    Navigation::Right => (
-                        CompositionState::Composing,
-                        vec![ClientAction::MoveCursor(1)],
-                    ),
-                    Navigation::Left => (
-                        CompositionState::Composing,
-                        vec![ClientAction::MoveCursor(-1)],
-                    ),
-                    Navigation::Up => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetSelection(SetSelectionType::Up)],
-                    ),
-                    Navigation::Down => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetSelection(SetSelectionType::Down)],
-                    ),
-                },
-                UserAction::ToggleInputMode => (
-                    CompositionState::None,
-                    vec![
-                        ClientAction::EndComposition,
-                        ClientAction::SetIMEMode(InputMode::Latin),
-                    ],
-                ),
-                UserAction::Space | UserAction::Tab => (
-                    CompositionState::Previewing,
-                    vec![ClientAction::SetSelection(SetSelectionType::Down)],
-                ),
-                UserAction::Function(key) => match key {
-                    Function::Six => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::Hiragana)],
-                    ),
-                    Function::Seven => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::Katakana)],
-                    ),
-                    Function::Eight => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::HalfKatakana)],
-                    ),
-                    Function::Nine => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::FullLatin)],
-                    ),
-                    Function::Ten => (
-                        CompositionState::Previewing,
-                        vec![ClientAction::SetTextWithType(SetTextType::HalfLatin)],
-                    ),
-                },
-                _ => {
-                    return Ok(None);
-                }
-            },
-            _ => {
-                return Ok(None);
-            }
+        let snapshot = aiokey_keymap::Snapshot {
+            state: composition.state,
+            mode,
+            preview: &composition.preview,
+            suffix: &composition.suffix,
+            context: &composition.context,
         };
-
-        Ok(Some((actions, transition)))
+        Ok(
+            aiokey_keymap::transition(&snapshot, key_from_wparam(wparam.0))
+                .map(|(transition, actions)| (actions, transition)),
+        )
     }
 
     #[tracing::instrument]
@@ -342,6 +137,7 @@ impl TextServiceFactory {
         let mut corresponding_count = composition.corresponding_count.clone();
         let mut candidates = composition.candidates.clone();
         let mut selection_index = composition.selection_index;
+        let mut committed_context = composition.context.clone();
         let mut ipc_service = IMEState::get()?
             .ipc_service
             .clone()
@@ -424,6 +220,27 @@ impl TextServiceFactory {
                     ipc_service.set_candidates(candidates.texts.clone())?;
                     ipc_service.set_selection(selection_index as i32)?;
                 }
+                ClientAction::Convert => {
+                    // 変換キー：段2で並べ替えた候補にして、1 位を表示する
+                    candidates = ipc_service.convert()?;
+                    selection_index = 0;
+                    let text = candidates.texts.first().cloned().unwrap_or_default();
+                    let sub_text = candidates.sub_texts.first().cloned().unwrap_or_default();
+                    corresponding_count =
+                        candidates.corresponding_count.first().cloned().unwrap_or(0);
+                    preview = text.clone();
+                    suffix = sub_text.clone();
+                    raw_hiragana = candidates.hiragana.clone();
+
+                    self.set_text(&text, &sub_text)?;
+                    ipc_service.set_candidates(candidates.texts.clone())?;
+                    ipc_service.set_selection(selection_index)?;
+                }
+                ClientAction::SetContext(context) => {
+                    // 確定した文を、段2の文脈としてサーバーに送る
+                    committed_context = context.clone();
+                    ipc_service.set_context(context.clone())?;
+                }
                 ClientAction::MoveCursor(_offset) => {
                     // TODO: use the engine's composing text
                     // self.set_cursor(offset)?;
@@ -434,7 +251,7 @@ impl TextServiceFactory {
                     self.end_composition()?;
 
                     let mut ime_state = IMEState::get()?;
-                    ime_state.input_mode = mode.clone();
+                    ime_state.input_mode = *mode;
 
                     // update the language bar
                     self.update_lang_bar()?;
@@ -540,6 +357,17 @@ impl TextServiceFactory {
         composition.candidates = candidates;
         composition.suffix = suffix.clone();
         composition.corresponding_count = corresponding_count;
+        composition.context = committed_context;
+        let composing = composition.state == CompositionState::Composing;
+        drop(composition);
+        drop(text_service);
+
+        // 打っている間は、段2の結果（キー入力が止まったあとに出る）を見に行く
+        if composing {
+            crate::tsf::live_update::start(self.borrow()?.this()?);
+        } else {
+            crate::tsf::live_update::stop();
+        }
 
         Ok(())
     }

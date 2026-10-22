@@ -93,6 +93,8 @@ struct Session {
     candidates: Vec<Candidate>,
     /// 段2の並び（candidates の添字）。今の revision のものだけを持つ
     order: Option<Vec<usize>>,
+    /// 段2の 1 位と 2 位の確率の差（order があるときだけ）
+    margin: f32,
     /// 今の revision について、段2が済んだ（または呼ばないと決めた）か
     settled: bool,
     /// 採点中の revision（同じ入力を 2 回採点しないため）
@@ -168,7 +170,7 @@ impl ConversionService {
         session.cursor = session.cursor.min(session.input.len());
         // 何も変わらなければ（先頭での RemoveText など）、計算し直さない
         if (&session.input, session.cursor, &session.context) == (&before.0, before.1, &before.2) {
-            return composing_text(&session);
+            return self.composing_text(&session);
         }
         let text: String = session.input[..session.cursor].iter().collect();
         session.candidates = if text.is_empty() {
@@ -184,8 +186,9 @@ impl ConversionService {
         };
         session.revision += 1;
         session.order = None;
+        session.margin = 0.0;
         session.settled = self.inner.stage2.is_none() || session.candidates.is_empty();
-        let response = composing_text(&session);
+        let response = self.composing_text(&session);
         if !session.settled {
             let _ = self.inner.changed.send(session.revision);
         }
@@ -193,7 +196,11 @@ impl ConversionService {
     }
 
     fn current(&self) -> ComposingText {
-        composing_text(&self.inner.session.lock().unwrap())
+        self.composing_text(&self.inner.session.lock().unwrap())
+    }
+
+    fn composing_text(&self, session: &Session) -> ComposingText {
+        composing_text(session, self.inner.config.stage2.margin_threshold)
     }
 
     /// 今の入力について段2が済む（または呼ばないと決まる）まで、`wait` を上限に待つ。
@@ -213,7 +220,7 @@ impl ConversionService {
     }
 }
 
-fn composing_text(session: &Session) -> ComposingText {
+fn composing_text(session: &Session, margin_threshold: f32) -> ComposingText {
     let identity: Vec<usize> = (0..session.candidates.len()).collect();
     let order = session.order.as_ref().unwrap_or(&identity);
     let count = session.cursor as i32;
@@ -232,6 +239,9 @@ fn composing_text(session: &Session) -> ComposingText {
             .collect(),
         revision: session.revision,
         reranked: session.order.is_some(),
+        margin: session.margin,
+        uncertain: session.order.is_some() && session.margin < margin_threshold,
+        settled: session.settled,
     }
 }
 
@@ -345,6 +355,11 @@ async fn run_stage2(inner: &Arc<Inner>, revision: u64) {
         Ok(scores) => {
             let mut order: Vec<usize> = (0..scores.len()).collect();
             order.sort_by(|&a, &b| scores[b].total_cmp(&scores[a]));
+            // 候補が 1 つしかなければ迷いようがないので、差は最大（1）とする
+            session.margin = match order.as_slice() {
+                [first, second, ..] => scores[*first] - scores[*second],
+                _ => 1.0,
+            };
             // 段2で採点しなかった候補は、段1の並びのまま後ろに置く
             order.extend(scores.len()..session.candidates.len());
             session.order = Some(order);
