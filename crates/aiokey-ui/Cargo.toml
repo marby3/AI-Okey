@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+aiokey-keymap = { path = "../aiokey-keymap" }
 anyhow = "1.0.95"
 
 [target.'cfg(windows)'.dependencies]

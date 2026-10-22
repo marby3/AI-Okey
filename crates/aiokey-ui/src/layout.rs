@@ -1,7 +1,7 @@
 //! 候補ウィンドウのレイアウト（Mozc 風）。
 
-/// 1 ページの候補の数
-pub const PAGE_SIZE: usize = 9;
+/// 1 ページの候補の数（数字キーで選ぶ範囲と同じにするため、aiokey-keymap の値を使う）
+pub use aiokey_keymap::PAGE_SIZE;
 
 /// 寸法（論理ピクセル）
 #[derive(Debug, Clone)]

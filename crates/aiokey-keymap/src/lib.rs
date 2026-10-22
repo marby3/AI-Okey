@@ -208,9 +208,13 @@ fn composing(s: &Snapshot, key: Key) -> Option<(CompositionState, Vec<ClientActi
     let previewing = s.state == S::Previewing;
     // 候補ウィンドウを開いているときは、数字キーで表示中のページの候補を選んで確定する
     if let (Key::Number(n), true) = (key, s.window_open) {
-        // 番号は 1〜9（0 は使わない）
-        let index = (n >= 1).then(|| s.selection / PAGE_SIZE * PAGE_SIZE + n as usize - 1);
-        return Some(match index.and_then(|i| Some((i, s.candidates.get(i)?))) {
+        // 番号は 1〜9（0 は使わない）。表示中のページの先頭から数える
+        let page_start = (s.selection / PAGE_SIZE) * PAGE_SIZE;
+        let picked = (n as usize)
+            .checked_sub(1)
+            .map(|offset| page_start + offset)
+            .and_then(|index| Some((index, s.candidates.get(index)?)));
+        return Some(match picked {
             Some((index, text)) => (
                 S::None,
                 vec![

@@ -67,6 +67,8 @@ const WM_ACTION: u32 = WM_APP + 1;
 /// モード表示を消すかどうかを確かめるタイマー
 const INDICATOR_TIMER: usize = 1;
 const INDICATOR_TICK: Duration = Duration::from_millis(100);
+/// 候補ウィンドウの左端を、キャレットからこれだけ左に置く（番号の列の分。物理ピクセル）
+const CARET_LEFT_OFFSET: i32 = 15;
 /// モード表示の大きさ（DIP）
 const INDICATOR_SIZE: f32 = 44.0;
 
@@ -239,6 +241,8 @@ async fn serve(target: isize) {
     {
         eprintln!("aiokey-ui: gRPC server failed: {e}");
     }
+    // 受け口がなくなったら UI は役に立たないので、プロセスごと終える
+    std::process::exit(1);
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -555,7 +559,15 @@ impl Ui {
                 );
             }
         }
-        unsafe { target.EndDraw(None, None)? };
+        if let Err(e) = unsafe { target.EndDraw(None, None) } {
+            // デバイスを失ったとき（D2DERR_RECREATE_TARGET など）は、次の描画で作り直す
+            if hwnd == self.candidate {
+                self.candidate_target = None;
+            } else {
+                self.indicator_target = None;
+            }
+            return Err(e.into());
+        }
         Ok(())
     }
 }
@@ -572,10 +584,12 @@ fn place(caret: RECT, width: i32, height: i32) -> (i32, i32) {
     }
     let work = monitor.rcWork;
     let y = if caret.bottom + height > work.bottom {
-        caret.top - height
+        (caret.top - height).max(work.top)
     } else {
         caret.bottom
     };
-    let x = (caret.left - 15).min(work.right - width).max(work.left);
+    let x = (caret.left - CARET_LEFT_OFFSET)
+        .min(work.right - width)
+        .max(work.left);
     (x, y)
 }
