@@ -142,9 +142,16 @@ pub struct Snapshot<'a> {
     pub candidates: &'a [String],
 }
 
+/// 候補ウィンドウの 1 ページの候補の数（aiokey-ui の PAGE_SIZE と同じ）
+pub const PAGE_SIZE: usize = 9;
+
 /// 確定したあとの文脈（後ろの [`CONTEXT_CHARS`] 文字）。
 fn committed(s: &Snapshot) -> ClientAction {
-    let text: Vec<char> = s.context.chars().chain(s.preview.chars()).collect();
+    committed_text(s, s.preview)
+}
+
+fn committed_text(s: &Snapshot, text: &str) -> ClientAction {
+    let text: Vec<char> = s.context.chars().chain(text.chars()).collect();
     let start = text.len().saturating_sub(CONTEXT_CHARS);
     ClientAction::SetContext(text[start..].iter().collect())
 }
@@ -174,72 +181,106 @@ pub fn transition(s: &Snapshot, key: Key) -> Option<(CompositionState, Vec<Clien
             _ => None,
         },
         S::Composing | S::Previewing => {
-            let previewing = s.state == S::Previewing;
-            Some(match key {
-                // 変換したあとに続けて打つと、表示している候補を確定して、新しく打ち始める
-                Key::Input(c) if previewing => (
-                    S::Composing,
-                    vec![committed(s), A::ShrinkText(c.to_string())],
-                ),
-                Key::Number(n) if previewing => (
-                    S::Composing,
-                    vec![committed(s), A::ShrinkText(n.to_string())],
-                ),
-                Key::Input(c) => (S::Composing, vec![A::AppendText(c.to_string())]),
-                Key::Number(n) => (S::Composing, vec![A::AppendText(n.to_string())]),
-                Key::Separator => (
-                    S::Composing,
-                    vec![A::AppendText(aiokey_engine::input::SEPARATOR.to_string())],
-                ),
-                Key::Backspace if s.preview.chars().count() <= 1 => {
-                    (S::None, vec![A::RemoveText, A::EndComposition])
-                }
-                Key::Backspace => (S::Composing, vec![A::RemoveText]),
-                Key::Enter if s.suffix.is_empty() => {
-                    (S::None, vec![A::EndComposition, committed(s)])
-                }
-                // 候補が入力の一部だけに当たるときは、その部分だけを確定して残りを続ける
-                Key::Enter => (
-                    S::Composing,
-                    vec![committed(s), A::ShrinkText(String::new())],
-                ),
-                Key::Escape => (S::None, vec![A::RemoveText, A::EndComposition]),
-                Key::Navigation(Navigation::Right) => (S::Composing, vec![A::MoveCursor(1)]),
-                Key::Navigation(Navigation::Left) => (S::Composing, vec![A::MoveCursor(-1)]),
-                Key::Navigation(Navigation::Up) => {
-                    (S::Previewing, vec![A::SetSelection(SetSelectionType::Up)])
-                }
-                Key::Navigation(Navigation::Down) => {
-                    (S::Previewing, vec![A::SetSelection(SetSelectionType::Down)])
-                }
-                Key::ToggleInputMode | Key::DirectMode => (
-                    S::None,
-                    vec![
-                        A::EndComposition,
-                        committed(s),
-                        A::SetIMEMode(InputMode::Latin),
-                    ],
-                ),
-                // 変換キー：段2で並べ替える。変換したあとは次の候補へ
-                Key::Space if !previewing => (S::Previewing, vec![A::Convert]),
-                Key::Space | Key::Tab => {
-                    (S::Previewing, vec![A::SetSelection(SetSelectionType::Down)])
-                }
-                Key::Function(f) => (
-                    S::Previewing,
-                    vec![A::SetTextWithType(match f {
-                        Function::Six => SetTextType::Hiragana,
-                        Function::Seven => SetTextType::Katakana,
-                        Function::Eight => SetTextType::HalfKatakana,
-                        Function::Nine => SetTextType::FullLatin,
-                        Function::Ten => SetTextType::HalfLatin,
-                    })],
-                ),
-                Key::AiokeyMode | Key::Unknown => return None,
-            })
+            let (next, mut actions) = composing(s, key)?;
+            // 打っている間・確定・取り消しでは候補ウィンドウを閉じ、次の候補に進んだら開く
+            let hide = A::HideCandidateWindow;
+            if s.window_open
+                && next != S::Previewing
+                && !actions.is_empty()
+                && !actions.contains(&hide)
+            {
+                actions.push(hide);
+            }
+            let moved = actions.iter().any(|a| matches!(a, A::SetSelection(_)));
+            if !s.window_open && next == S::Previewing && moved {
+                actions.push(A::ShowCandidateWindow);
+            }
+            Some((next, actions))
         }
         S::Selecting => None,
     }
+}
+
+/// 変換中のキー。候補ウィンドウの開け閉めは [`transition`] で足す。
+fn composing(s: &Snapshot, key: Key) -> Option<(CompositionState, Vec<ClientAction>)> {
+    use ClientAction as A;
+    use CompositionState as S;
+    let previewing = s.state == S::Previewing;
+    // 候補ウィンドウを開いているときは、数字キーで表示中のページの候補を選んで確定する
+    if let (Key::Number(n), true) = (key, s.window_open) {
+        // 番号は 1〜9（0 は使わない）
+        let index = (n >= 1).then(|| s.selection / PAGE_SIZE * PAGE_SIZE + n as usize - 1);
+        return Some(match index.and_then(|i| Some((i, s.candidates.get(i)?))) {
+            Some((index, text)) => (
+                S::None,
+                vec![
+                    A::SetSelection(SetSelectionType::Number(index as i32)),
+                    A::EndComposition,
+                    committed_text(s, text),
+                    A::HideCandidateWindow,
+                ],
+            ),
+            _ => (s.state, vec![]),
+        });
+    }
+    Some(match key {
+        // 変換したあとに続けて打つと、表示している候補を確定して、新しく打ち始める
+        Key::Input(c) if previewing => (
+            S::Composing,
+            vec![committed(s), A::ShrinkText(c.to_string())],
+        ),
+        Key::Number(n) if previewing => (
+            S::Composing,
+            vec![committed(s), A::ShrinkText(n.to_string())],
+        ),
+        Key::Input(c) => (S::Composing, vec![A::AppendText(c.to_string())]),
+        Key::Number(n) => (S::Composing, vec![A::AppendText(n.to_string())]),
+        Key::Separator => (
+            S::Composing,
+            vec![A::AppendText(aiokey_engine::input::SEPARATOR.to_string())],
+        ),
+        Key::Backspace if s.preview.chars().count() <= 1 => {
+            (S::None, vec![A::RemoveText, A::EndComposition])
+        }
+        Key::Backspace => (S::Composing, vec![A::RemoveText]),
+        Key::Enter if s.suffix.is_empty() => (S::None, vec![A::EndComposition, committed(s)]),
+        // 候補が入力の一部だけに当たるときは、その部分だけを確定して残りを続ける
+        Key::Enter => (
+            S::Composing,
+            vec![committed(s), A::ShrinkText(String::new())],
+        ),
+        Key::Escape => (S::None, vec![A::RemoveText, A::EndComposition]),
+        Key::Navigation(Navigation::Right) => (S::Composing, vec![A::MoveCursor(1)]),
+        Key::Navigation(Navigation::Left) => (S::Composing, vec![A::MoveCursor(-1)]),
+        Key::Navigation(Navigation::Up) => {
+            (S::Previewing, vec![A::SetSelection(SetSelectionType::Up)])
+        }
+        Key::Navigation(Navigation::Down) => {
+            (S::Previewing, vec![A::SetSelection(SetSelectionType::Down)])
+        }
+        Key::ToggleInputMode | Key::DirectMode => (
+            S::None,
+            vec![
+                A::EndComposition,
+                committed(s),
+                A::SetIMEMode(InputMode::Latin),
+            ],
+        ),
+        // 変換キー：段2で並べ替える。変換したあとは次の候補へ
+        Key::Space if !previewing => (S::Previewing, vec![A::Convert]),
+        Key::Space | Key::Tab => (S::Previewing, vec![A::SetSelection(SetSelectionType::Down)]),
+        Key::Function(f) => (
+            S::Previewing,
+            vec![A::SetTextWithType(match f {
+                Function::Six => SetTextType::Hiragana,
+                Function::Seven => SetTextType::Katakana,
+                Function::Eight => SetTextType::HalfKatakana,
+                Function::Nine => SetTextType::FullLatin,
+                Function::Ten => SetTextType::HalfLatin,
+            })],
+        ),
+        Key::AiokeyMode | Key::Unknown => return None,
+    })
 }
 
 /// サーバーの GetComposingText の応答のうち、ライブ変換の判断に使うもの。

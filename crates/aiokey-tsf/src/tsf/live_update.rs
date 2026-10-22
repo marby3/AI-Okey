@@ -133,6 +133,7 @@ impl TextServiceFactory {
                 let mut c = text_service.borrow_mut_composition()?;
                 c.selection_index = index;
                 c.candidates = candidates;
+                c.window_open = true;
             }
         }
         Ok(false)

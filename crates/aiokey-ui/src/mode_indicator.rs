@@ -5,15 +5,21 @@ use std::time::{Duration, Instant};
 pub const SHOW_FOR: Duration = Duration::from_millis(1000);
 
 #[derive(Debug, Default)]
-pub struct ModeIndicator {}
+pub struct ModeIndicator {
+    shown: Option<(String, Instant)>,
+}
 
 impl ModeIndicator {
-    pub fn set_mode(&mut self, _mode: &str, _now: Instant) {
-        todo!()
+    /// モードを切り替えた。`now` から [`SHOW_FOR`] のあいだ出す
+    pub fn set_mode(&mut self, mode: &str, now: Instant) {
+        self.shown = Some((mode.to_string(), now));
     }
 
     /// 今出しておく文字。出さないなら None
-    pub fn visible(&self, _now: Instant) -> Option<&str> {
-        todo!()
+    pub fn visible(&self, now: Instant) -> Option<&str> {
+        match &self.shown {
+            Some((mode, since)) if now.saturating_duration_since(*since) < SHOW_FOR => Some(mode),
+            _ => None,
+        }
     }
 }

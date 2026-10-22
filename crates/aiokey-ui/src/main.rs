@@ -2,6 +2,10 @@
 
 #[cfg(windows)]
 mod app;
+#[cfg(windows)]
+mod ipc;
+#[cfg(windows)]
+mod uiaccess;
 
 fn main() -> anyhow::Result<()> {
     #[cfg(windows)]

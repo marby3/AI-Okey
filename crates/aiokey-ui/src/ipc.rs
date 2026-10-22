@@ -17,7 +17,7 @@ impl WindowController {
 }
 
 // ウィンドウ操作コマンド
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug)]
 pub enum WindowAction {
     Show,
     Hide,

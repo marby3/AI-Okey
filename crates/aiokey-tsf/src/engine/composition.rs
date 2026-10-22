@@ -41,6 +41,8 @@ pub struct Composition {
 
     /// 確定した文（サーバーに文脈として送ったもの）
     pub context: String,
+    /// 候補ウィンドウを開いているか
+    pub window_open: bool,
 
     pub state: CompositionState,
     pub tip_composition: Option<ITfComposition>,
@@ -92,7 +94,7 @@ impl TextServiceFactory {
             preview: &composition.preview,
             suffix: &composition.suffix,
             context: &composition.context,
-            window_open: false,
+            window_open: composition.window_open,
             selection: composition.selection_index.max(0) as usize,
             candidates: &composition.candidates.texts,
         };
@@ -141,6 +143,7 @@ impl TextServiceFactory {
         let mut candidates = composition.candidates.clone();
         let mut selection_index = composition.selection_index;
         let mut committed_context = composition.context.clone();
+        let mut window_open = composition.window_open;
         let mut ipc_service = IMEState::get()?
             .ipc_service
             .clone()
@@ -152,9 +155,9 @@ impl TextServiceFactory {
         for action in actions {
             match action {
                 ClientAction::StartComposition => {
+                    // 候補ウィンドウは打っている間は開かない（次の候補に進んだときに開く）
                     self.start_composition()?;
                     self.update_pos()?;
-                    ipc_service.show_window()?;
                 }
                 ClientAction::EndComposition => {
                     self.end_composition()?;
@@ -165,6 +168,7 @@ impl TextServiceFactory {
                     raw_input.clear();
                     raw_hiragana.clear();
                     ipc_service.hide_window()?;
+                    window_open = false;
                     ipc_service.set_candidates(vec![])?;
                     ipc_service.clear_text()?;
                 }
@@ -246,9 +250,11 @@ impl TextServiceFactory {
                 }
                 ClientAction::ShowCandidateWindow => {
                     ipc_service.show_window()?;
+                    window_open = true;
                 }
                 ClientAction::HideCandidateWindow => {
                     ipc_service.hide_window()?;
+                    window_open = false;
                 }
                 ClientAction::MoveCursor(_offset) => {
                     // TODO: use the engine's composing text
@@ -367,6 +373,7 @@ impl TextServiceFactory {
         composition.suffix = suffix.clone();
         composition.corresponding_count = corresponding_count;
         composition.context = committed_context;
+        composition.window_open = window_open;
         let composing = composition.state == CompositionState::Composing;
         drop(composition);
         drop(text_service);
