@@ -1,4 +1,4 @@
 [alias]
 # OS に依存しないクレートのテスト（Linux の dev コンテナと CI で使う）。
 # aiokey-tsf と aiokey-ui は Windows 専用。aiokey-py は Python 拡張なので python/ の pytest で確かめる。
-test-portable = "test --workspace --exclude aiokey-tsf --exclude aiokey-ui --exclude aiokey-py"
+test-portable = "test --workspace --exclude aiokey-tsf --exclude aiokey-py"

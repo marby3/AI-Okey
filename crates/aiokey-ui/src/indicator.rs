@@ -14,7 +14,7 @@ use windows::Win32::{
 };
 use wry::{WebView, WebViewBuilder};
 
-use crate::UserEvent;
+use super::UserEvent;
 
 pub fn create_indicator_window(event_loop: &EventLoop<UserEvent>) -> Result<Window> {
     let window = WindowBuilder::new()

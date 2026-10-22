@@ -92,6 +92,9 @@ impl TextServiceFactory {
             preview: &composition.preview,
             suffix: &composition.suffix,
             context: &composition.context,
+            window_open: false,
+            selection: composition.selection_index.max(0) as usize,
+            candidates: &composition.candidates.texts,
         };
         Ok(
             aiokey_keymap::transition(&snapshot, key_from_wparam(wparam.0))
@@ -240,6 +243,12 @@ impl TextServiceFactory {
                     // 確定した文を、段2の文脈としてサーバーに送る
                     committed_context = context.clone();
                     ipc_service.set_context(context.clone())?;
+                }
+                ClientAction::ShowCandidateWindow => {
+                    ipc_service.show_window()?;
+                }
+                ClientAction::HideCandidateWindow => {
+                    ipc_service.hide_window()?;
                 }
                 ClientAction::MoveCursor(_offset) => {
                     // TODO: use the engine's composing text

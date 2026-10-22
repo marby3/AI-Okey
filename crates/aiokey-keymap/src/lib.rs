@@ -33,6 +33,8 @@ pub enum ClientAction {
     SetIMEMode(InputMode),
     Convert,
     SetContext(String),
+    ShowCandidateWindow,
+    HideCandidateWindow,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,6 +134,12 @@ pub struct Snapshot<'a> {
     pub suffix: &'a str,
     /// 確定した文（文脈）
     pub context: &'a str,
+    /// 候補ウィンドウを開いているか
+    pub window_open: bool,
+    /// 選んでいる候補の位置
+    pub selection: usize,
+    /// 候補の一覧
+    pub candidates: &'a [String],
 }
 
 /// 確定したあとの文脈（後ろの [`CONTEXT_CHARS`] 文字）。

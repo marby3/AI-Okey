@@ -24,6 +24,9 @@ fn snapshot(state: CompositionState, mode: InputMode) -> Snapshot<'static> {
         preview: "",
         suffix: "",
         context: "",
+        window_open: false,
+        selection: 0,
+        candidates: &[],
     }
 }
 
@@ -182,11 +185,13 @@ fn space_converts_then_moves_to_the_next_candidate() {
         ),
         Some((CompositionState::Previewing, vec![ClientAction::Convert]))
     );
+    // 候補ウィンドウを開いたあとの Space（ウィンドウを開く時機は #12 の tests/window.rs）
+    let open = Snapshot {
+        window_open: true,
+        ..snapshot(CompositionState::Previewing, InputMode::Kana)
+    };
     assert_eq!(
-        transition(
-            &snapshot(CompositionState::Previewing, InputMode::Kana),
-            Key::Space
-        ),
+        transition(&open, Key::Space),
         Some((
             CompositionState::Previewing,
             vec![ClientAction::SetSelection(SetSelectionType::Down)]
