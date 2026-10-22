@@ -14,6 +14,9 @@ message ComposingText {
   repeated Suggestion suggestions = 2; // List of suggestions for the text.
   uint64 revision = 3; // 入力が変わるたびに増える番号（段2の結果がどの入力のものかを見分ける）
   bool reranked = 4;   // 候補が段2で並べ替え済みか
+  float margin = 5;    // 段2の 1 位と 2 位の確率の差（並べ替えたときだけ）
+  bool uncertain = 6;  // 並べ替えたが margin が閾値未満（ライブ変換を更新せずに候補ウィンドウを開く）
+  bool settled = 7;    // この revision について、段2が済んだ（または呼ばないと決めた）か
 }
 
 // Request message for AppendText.

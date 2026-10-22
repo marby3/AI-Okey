@@ -7,6 +7,7 @@ members = [
   "crates/aiokey-py",
   "crates/aiokey-scorer",
   "crates/aiokey-ipc",
+  "crates/aiokey-keymap",
   "crates/aiokey-server",
   "crates/aiokey-launcher",
   "crates/aiokey-macros",

@@ -279,6 +279,21 @@ async fn idle_model_is_released_and_reloaded() {
     assert_eq!(h.loads.load(Ordering::SeqCst), 2);
 }
 
+#[tokio::test]
+async fn stage2_reports_the_margin_and_whether_it_is_uncertain() {
+    // テスト用の段2は点数を 0, 1, 2, … と返すので、並べ替えたあとの 1 位と 2 位の差は 1
+    for (threshold, uncertain) in [(2.0, true), (0.5, false)] {
+        let mut config = always_stage2();
+        config.stage2.margin_threshold = threshold;
+        let h = harness(config, Duration::ZERO);
+        append(&h.service, "kik").await;
+        let c = convert(&h.service).await;
+        assert!(c.reranked && c.settled);
+        assert!((c.margin - 1.0).abs() < 1e-6, "{}", c.margin);
+        assert_eq!(c.uncertain, uncertain, "threshold {threshold}");
+    }
+}
+
 #[test]
 fn toml_sets_threads_priority_thresholds_and_unload_time() {
     let defaults = Config::default();

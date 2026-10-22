@@ -45,6 +45,8 @@ pub struct Stage2Config {
     pub skip_cost_gap: i32,
     /// この時間使わなければ、段2のモデルを解放する
     pub unload_after: Duration,
+    /// 段2の margin（1 位と 2 位の確率の差）がこれ未満なら、確信が低いとして知らせる
+    pub margin_threshold: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +74,7 @@ impl Default for Config {
                 debounce: Duration::from_millis(30),
                 skip_cost_gap: 3000,
                 unload_after: Duration::from_secs(600),
+                margin_threshold: 0.2,
             },
         }
     }

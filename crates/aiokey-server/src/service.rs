@@ -232,6 +232,9 @@ fn composing_text(session: &Session) -> ComposingText {
             .collect(),
         revision: session.revision,
         reranked: session.order.is_some(),
+        margin: 0.0,
+        uncertain: false,
+        settled: false,
     }
 }
 

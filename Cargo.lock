@@ -63,6 +63,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "aiokey-keymap"
+version = "0.10.0"
+dependencies = [
+ "aiokey-engine",
+]
+
+[[package]]
 name = "aiokey-launcher"
 version = "0.10.0"
 dependencies = [

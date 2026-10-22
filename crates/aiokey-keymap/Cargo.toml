@@ -1,0 +1,9 @@
+[package]
+name = "aiokey-keymap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "AI-O Key のキーの解釈と変換の状態の移り変わり（OS に依存しない）"
+
+[dependencies]
+aiokey-engine = { path = "../aiokey-engine" }
