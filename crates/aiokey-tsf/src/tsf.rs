@@ -8,3 +8,4 @@ pub(super) mod text_input_proccesor;
 pub(super) mod text_layout_sink;
 pub(super) mod text_service;
 pub(super) mod thread_mgr_event_sink;
+pub(super) mod live_update;

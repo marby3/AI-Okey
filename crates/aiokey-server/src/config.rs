@@ -14,6 +14,7 @@
 //! debounce_ms = 30                 # キー入力がこの時間止まったら段2を動かす
 //! skip_cost_gap = 3000             # 段1の 1 位と 2 位のコスト差がこれ以上なら段2を呼ばない
 //! unload_after_secs = 600          # この時間使わなければ段2のモデルを解放する
+//! margin_threshold = 0.2           # 段2の 1 位と 2 位の確率の差がこれ未満なら、確信が低いと知らせる
 //! ```
 //!
 //! 相対パスは設定ファイルのあるフォルダから数える。数値はどれも暫定の既定値で、計測して見直す。
@@ -101,6 +102,7 @@ struct Stage2File {
     debounce_ms: Option<u64>,
     skip_cost_gap: Option<i32>,
     unload_after_secs: Option<f64>,
+    margin_threshold: Option<f32>,
 }
 
 impl Config {
@@ -121,6 +123,7 @@ impl Config {
                 c.debounce = Duration::from_millis(ms);
             }
             c.skip_cost_gap = s.skip_cost_gap.unwrap_or(c.skip_cost_gap);
+            c.margin_threshold = s.margin_threshold.unwrap_or(c.margin_threshold);
             if let Some(secs) = s.unload_after_secs {
                 c.unload_after = Duration::try_from_secs_f64(secs)
                     .map_err(|e| format!("unload_after_secs: {e}"))?;

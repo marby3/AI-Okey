@@ -1,8 +1,8 @@
-use anyhow::Result;
-use hyper_util::rt::TokioIo;
 use aiokey_ipc::proto::{
     aiokey_service_client::AiokeyServiceClient, window_service_client::WindowServiceClient,
 };
+use anyhow::Result;
+use hyper_util::rt::TokioIo;
 use std::{sync::Arc, time::Duration};
 use tokio::{net::windows::named_pipe::ClientOptions, time};
 use tonic::transport::Endpoint;
@@ -25,6 +25,38 @@ pub struct Candidates {
     pub sub_texts: Vec<String>,
     pub hiragana: String,
     pub corresponding_count: Vec<i32>,
+    /// 入力の番号（段2の結果がどの入力のものかを見分ける）
+    pub revision: u64,
+    /// 段2が済んだ（または呼ばないと決めた）か
+    pub settled: bool,
+    /// 段2で並べ替え済みか
+    pub reranked: bool,
+    /// 段2の確信が低い（margin が閾値未満）
+    pub uncertain: bool,
+}
+
+impl TryFrom<Option<aiokey_ipc::proto::ComposingText>> for Candidates {
+    type Error = anyhow::Error;
+
+    fn try_from(composing_text: Option<aiokey_ipc::proto::ComposingText>) -> anyhow::Result<Self> {
+        let Some(c) = composing_text else {
+            anyhow::bail!("composing_text is None");
+        };
+        Ok(Candidates {
+            texts: c.suggestions.iter().map(|s| s.text.clone()).collect(),
+            sub_texts: c.suggestions.iter().map(|s| s.subtext.clone()).collect(),
+            corresponding_count: c
+                .suggestions
+                .iter()
+                .map(|s| s.corresponding_count)
+                .collect(),
+            hiragana: c.hiragana,
+            revision: c.revision,
+            settled: c.settled,
+            reranked: c.reranked,
+            uncertain: c.uncertain,
+        })
+    }
 }
 
 impl IPCService {
@@ -91,32 +123,7 @@ impl IPCService {
             .runtime
             .clone()
             .block_on(self.engine_client.append_text(request))?;
-        let composing_text = response.into_inner().composing_text;
-
-        let candidates = if let Some(composing_text) = composing_text {
-            Candidates {
-                texts: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.text.clone())
-                    .collect(),
-                sub_texts: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.subtext.clone())
-                    .collect(),
-                hiragana: composing_text.hiragana,
-                corresponding_count: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.corresponding_count)
-                    .collect(),
-            }
-        } else {
-            anyhow::bail!("composing_text is None");
-        };
-
-        Ok(candidates)
+        Candidates::try_from(response.into_inner().composing_text)
     }
 
     #[tracing::instrument]
@@ -126,32 +133,7 @@ impl IPCService {
             .runtime
             .clone()
             .block_on(self.engine_client.remove_text(request))?;
-        let composing_text = response.into_inner().composing_text;
-
-        let candidates = if let Some(composing_text) = composing_text {
-            Candidates {
-                texts: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.text.clone())
-                    .collect(),
-                sub_texts: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.subtext.clone())
-                    .collect(),
-                hiragana: composing_text.hiragana,
-                corresponding_count: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.corresponding_count)
-                    .collect(),
-            }
-        } else {
-            anyhow::bail!("composing_text is None");
-        };
-
-        Ok(candidates)
+        Candidates::try_from(response.into_inner().composing_text)
     }
 
     #[tracing::instrument]
@@ -172,32 +154,28 @@ impl IPCService {
             .runtime
             .clone()
             .block_on(self.engine_client.shrink_text(request))?;
-        let composing_text = response.into_inner().composing_text;
+        Candidates::try_from(response.into_inner().composing_text)
+    }
 
-        let candidates = if let Some(composing_text) = composing_text {
-            Candidates {
-                texts: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.text.clone())
-                    .collect(),
-                sub_texts: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.subtext.clone())
-                    .collect(),
-                hiragana: composing_text.hiragana,
-                corresponding_count: composing_text
-                    .suggestions
-                    .iter()
-                    .map(|s| s.corresponding_count)
-                    .collect(),
-            }
-        } else {
-            anyhow::bail!("composing_text is None");
-        };
+    /// 変換キー：今の入力を段2で並べ替えた候補（段1の確信度が高ければ段1のまま）。
+    #[tracing::instrument]
+    pub fn convert(&mut self) -> anyhow::Result<Candidates> {
+        let request = tonic::Request::new(aiokey_ipc::proto::ConvertRequest {});
+        let response = self
+            .runtime
+            .clone()
+            .block_on(self.engine_client.convert(request))?;
+        Candidates::try_from(response.into_inner().composing_text)
+    }
 
-        Ok(candidates)
+    /// 今の入力の最新の候補（段2の結果があればそれ）。`wait_ms` まで段2を待つ。
+    pub fn get_composing_text(&mut self, wait_ms: u32) -> anyhow::Result<Candidates> {
+        let request = tonic::Request::new(aiokey_ipc::proto::GetComposingTextRequest { wait_ms });
+        let response = self
+            .runtime
+            .clone()
+            .block_on(self.engine_client.get_composing_text(request))?;
+        Candidates::try_from(response.into_inner().composing_text)
     }
 
     pub fn set_context(&mut self, context: String) -> anyhow::Result<()> {
