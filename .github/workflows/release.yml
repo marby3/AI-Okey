@@ -12,9 +12,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      # protoc は版を固定して取る（以前の Action は 23.x を見つけられなくなった。#37）
+      - name: Install protoc
+        shell: bash
+        run: bash scripts/fetch-protoc.sh
       - name: Install Rust toolchain
         run: |
           rustup show
