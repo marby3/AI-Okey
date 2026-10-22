@@ -5,19 +5,31 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+aiokey-keymap = { path = "../aiokey-keymap" }
 anyhow = "1.0.95"
-tao = "0.31.0"
-wry = "0.47.2"
-tokio = { version = "1.42.0", features = ["full"] }
+
+[target.'cfg(windows)'.dependencies]
+tokio = { version = "1.42.0", features = ["rt", "macros", "sync"] }
 tonic = "0.12.3"
 aiokey-ipc = { path = "../aiokey-ipc" }
 aiokey-server = { path = "../aiokey-server" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
 
-[dependencies.windows]
+[target.'cfg(windows)'.dependencies.windows]
 version = "0.58.0"
 features = [
+    "Foundation_Numerics",
+    "Win32_Foundation",
+    "Win32_Graphics_Direct2D",
+    "Win32_Graphics_Direct2D_Common",
+    "Win32_Graphics_DirectWrite",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
     "Win32_System_Diagnostics_ToolHelp",
-    "Win32_System_Environment"
+    "Win32_System_Environment",
+    "Win32_System_LibraryLoader",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_UI_HiDpi",
+    "Win32_UI_WindowsAndMessaging",
 ]
