@@ -294,13 +294,17 @@ def run(args) -> dict:
     if args.resume:
         if checkpoint is None or not checkpoint.is_file():
             raise ValueError("--resume needs --checkpoint DIR that has checkpoint.pt")
-        ck = torch.load(checkpoint, map_location=device, weights_only=False)
+        # 乱数の状態は CPU のテンソルでないと戻せないので、いったん CPU に読み込む（モデルと最適化の状態は
+        # load_state_dict がそれぞれの置き場所に移す）。チェックポイントは自分で書いたものなので、pickle も読む
+        ck = torch.load(checkpoint, map_location="cpu", weights_only=False)
         if ck["total_steps"] != total_steps:
             raise ValueError(f"{checkpoint}: made for {ck['total_steps']} steps, but this run has {total_steps}")
         model.load_state_dict(ck["model"])
         optimizer.load_state_dict(ck["optimizer"])
         schedule.load_state_dict(ck["schedule"])
         step = resumed_from = ck["step"]
+        if args.stop_after and args.stop_after <= step:
+            raise ValueError(f"--stop-after {args.stop_after} is not after the checkpoint (step {step})")
         start_epoch, start_position, saved_order = ck["epoch"], ck["position"], ck["order"]
         history, dev_before = ck["history"], ck["dev_before"]
         # 乱数（例の順番、ドロップアウト）も止めたところから続ける
@@ -466,7 +470,7 @@ def main(argv: list[str] | None = None) -> int:
     p = parser()
     args = p.parse_args(argv)
     if args.batch_size < 1 or args.epochs < 1 or args.max_candidates < 1 or args.max_batch_tokens < 1:
-        p.error("--batch-size, --epochs and --max-candidates must be at least 1")
+        p.error("--batch-size, --epochs, --max-candidates and --max-batch-tokens must be at least 1")
     if args.lm_weight < 0:
         p.error("--lm-weight must not be negative")
     try:

@@ -28,6 +28,8 @@ export CARGO_HOME=$T/cargo RUSTUP_HOME=$T/rustup PATH=$T/bin:$T/cargo/bin:$PATH
 export LIBCLANG_PATH=$T/libclang/lib/python3.12/site-packages/clang/native
 export BINDGEN_EXTRA_CLANG_ARGS="-I/usr/lib/gcc/x86_64-linux-gnu/13/include"
 export UV_PROJECT_ENVIRONMENT=$T/venv CARGO_BUILD_JOBS=12 CARGO_TARGET_DIR=$T/target
+# バッチの大きさが変わっても GPU のメモリが細切れにならないように
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 EOS
 ```
 
@@ -63,11 +65,11 @@ $T/venv/bin/python -c "import torch, aiokey; print(torch.cuda.get_device_name(0)
 cd $T/repo/python
 $T/venv/bin/python -m aiokey train \
   --train $T/data/examples/train.jsonl --dev $T/data/examples/dev.jsonl \
-  --out $T/out --checkpoint $T/checkpoint --epochs 2 --batch-size 16 --stop-after 50
+  --out $T/out --checkpoint $T/checkpoint --epochs 4 --max-batch-tokens 32768 --lr 2e-4 --stop-after 50
 # 続き（同じ引数に --resume を足す。--stop-after は外す）
 nohup $T/venv/bin/python -m aiokey train \
   --train $T/data/examples/train.jsonl --dev $T/data/examples/dev.jsonl \
-  --out $T/out --checkpoint $T/checkpoint --epochs 2 --batch-size 16 --resume > $T/train.log 2>&1 &
+  --out $T/out --checkpoint $T/checkpoint --epochs 4 --max-batch-tokens 32768 --lr 2e-4 --resume > $T/train.log 2>&1 &
 ```
 
 ssh が切れても学習が止まらないよう、本番は `nohup` で流す。進み具合は `tail -f $T/train.log` で見る。

@@ -27,7 +27,7 @@ fn main() {
         &Config {
             format: PromptFormat::Aiokey,
             threads,
-            temperature: temperature.parse().unwrap(),
+            temperature: temperature.parse().expect("temperature must be a number"),
             // 段2で採点する候補の上限（段1の上位から。既定 32）
             max_candidates: std::env::var("STAGE2_K")
                 .ok()

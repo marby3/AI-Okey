@@ -10,7 +10,7 @@
 //! format = "aiokey"                # aiokey / zenz
 //! threads = 2                      # 推論のスレッド数
 //! max_candidates = 8               # 段2で採点する候補の上限（段1の上位から）
-//! temperature = 1.0              # 省略すると、学習済みモデルの隣の aiokey-stage2.json の値（なければ 1）
+//! # temperature = 3.4             # 省略すると、学習済みモデルの隣の aiokey-stage2.json の値（なければ 1）
 //! debounce_ms = 30                 # キー入力がこの時間止まったら段2を動かす
 //! skip_cost_gap = 500              # 段1の 1 位と 2 位のコスト差がこれ以上なら段2を呼ばない
 //! unload_after_secs = 600          # この時間使わなければ段2のモデルを解放する
@@ -120,11 +120,19 @@ impl Config {
         if self.stage2.model.is_none() && model.is_file() {
             self.stage2.model = Some(model);
             if self.stage2.temperature.is_none() {
-                self.stage2.temperature = std::fs::read_to_string(dir.join(BUNDLED_MODEL_INFO))
+                let info = dir.join(BUNDLED_MODEL_INFO);
+                self.stage2.temperature = std::fs::read_to_string(&info)
                     .ok()
                     .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
                     .and_then(|info| info["temperature"].as_f64())
                     .map(|t| t as f32);
+                if self.stage2.temperature.is_none() {
+                    // 校正していない温度（1）で動くと確率がずれるので、気づけるように知らせる
+                    eprintln!(
+                        "aiokey-server: {}: no calibrated temperature; using 1.0",
+                        info.display()
+                    );
+                }
             }
         }
         self

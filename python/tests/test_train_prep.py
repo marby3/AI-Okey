@@ -88,5 +88,5 @@ def test_small_training_lowers_the_dev_decision_loss(tmp_path):
 
 def test_gpu_server_procedure_is_documented():
     doc = (ROOT / "docs/training-gpu.md").read_text(encoding="utf-8")
-    for needle in ["uv sync", "--extra cuda", "python -m aiokey train", "--resume", "--checkpoint", "rsync"]:
+    for needle in ["uv sync", "--extra cuda", "python -m aiokey train", "--resume", "--checkpoint", "tar -xf"]:
         assert needle in doc, needle
