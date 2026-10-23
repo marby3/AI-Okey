@@ -28,7 +28,7 @@ License: MIT
 zenz-v2.5-xsmall
 https://huggingface.co/Miwa-Keita/zenz-v2.5-xsmall
 License: CC-BY-SA 4.0
-用途: 段2の採点モデルのベース。これを再学習した派生モデルも CC-BY-SA 4.0 で配布する。
+用途: 段2の採点モデルのベース。これを再学習した派生モデルも CC-BY-SA 4.0 で配布する（配布物の aiokey-stage2-q8_0.gguf）。
 
 --------------------------------------------------------------------------------
 Wikipedia 日本語版

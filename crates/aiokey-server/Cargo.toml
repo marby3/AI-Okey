@@ -9,6 +9,7 @@ aiokey-engine = { path = "../aiokey-engine" }
 aiokey-ipc = { path = "../aiokey-ipc" }
 aiokey-scorer = { path = "../aiokey-scorer" }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 tokio = { version = "1.42.0", features = ["full"] }
 toml = "0.8.19"
 tonic = "0.12.3"

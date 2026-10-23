@@ -52,7 +52,7 @@ pub fn model_loader(config: &Stage2Config) -> Option<Loader> {
             _ => aiokey_scorer::PromptFormat::Aiokey,
         },
         max_candidates: config.max_candidates,
-        temperature: config.temperature,
+        temperature: config.temperature.unwrap_or(1.0),
     };
     Some(Arc::new(move || {
         let scorer = aiokey_scorer::Scorer::open(&path, &scorer_config)?;
