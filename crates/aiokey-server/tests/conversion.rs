@@ -295,6 +295,28 @@ async fn stage2_reports_the_margin_and_whether_it_is_uncertain() {
 }
 
 #[test]
+fn trained_model_next_to_the_server_is_the_default() {
+    // Issue #13 基準 9：実行ファイルの隣に学習済みモデルがあれば、それを aiokey 形式と校正後の温度で使う
+    let dir = std::env::temp_dir().join(format!("aiokey-bundled-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let defaults = Config::default();
+    assert_eq!(defaults.stage2.format, "aiokey");
+    assert_eq!(defaults.clone().with_bundled_model(&dir).stage2.model, None);
+
+    std::fs::write(dir.join("aiokey-stage2-q8_0.gguf"), b"gguf").unwrap();
+    std::fs::write(dir.join("aiokey-stage2.json"), r#"{"temperature": 3.25}"#).unwrap();
+    let config = defaults.with_bundled_model(&dir);
+    assert_eq!(config.stage2.model, Some(dir.join("aiokey-stage2-q8_0.gguf")));
+    assert_eq!(config.stage2.temperature, Some(3.25));
+
+    // 設定ファイルで指定したものが優先する
+    let mut own = Config::from_toml("[stage2]\nmodel = \"other.gguf\"\ntemperature = 1.5").unwrap();
+    own = own.with_bundled_model(&dir);
+    assert_eq!(own.stage2.model, Some(PathBuf::from("other.gguf")));
+    assert_eq!(own.stage2.temperature, Some(1.5));
+}
+
+#[test]
 fn toml_sets_threads_priority_thresholds_and_unload_time() {
     let defaults = Config::default();
     assert_eq!(defaults.stage2.threads, 2);
