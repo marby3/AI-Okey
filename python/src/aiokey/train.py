@@ -21,7 +21,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
-import math
 import random
 import re
 import shutil
@@ -50,6 +49,8 @@ class Encoded:
     # 候補の部分が始まる位置（プロンプトの長さ。全候補で同じ）
     start: int
     gold: int
+    # 正解が段1の候補にあったか（なければ aiokey.datagen が候補の最後に足している）
+    in_stage1: bool = True
 
 
 def decision_loss(log_probs: torch.Tensor, gold: int) -> torch.Tensor:
@@ -92,7 +93,7 @@ def encode(tokenizer, example: dict, max_candidates: int, max_length: int = 1024
         sequences.append(seq)
     if gold is None:
         return None
-    return Encoded(sequences, len(prompt), gold)
+    return Encoded(sequences, len(prompt), gold, bool(example.get("gold_in_stage1", True)))
 
 
 def candidate_log_probs(model, batch: list[Encoded]) -> list[torch.Tensor]:
@@ -112,9 +113,13 @@ def candidate_log_probs(model, batch: list[Encoded]) -> list[torch.Tensor]:
             counted[i, max(e.start, 1) - 1 : len(s) - 1] = True
             i += 1
     ids, attention, counted = ids.to(device), attention.to(device), counted.to(device)
-    logits = model(input_ids=ids, attention_mask=attention).logits[:, :-1].float()
-    token_lp = -F.cross_entropy(logits.transpose(1, 2), ids[:, 1:], reduction="none")
-    totals = (token_lp * counted).sum(dim=1)
+    # 語彙ぶんの確率（lm_head）は、候補の部分の位置だけで計算する。全位置で計算すると、
+    # 1 ステップ（8 例 × 候補 32 件）で数 GB になる（#13）
+    hidden = model.transformer(input_ids=ids, attention_mask=attention).last_hidden_state
+    logits = model.lm_head(hidden[:, :-1][counted]).float()
+    token_lp = -F.cross_entropy(logits, ids[:, 1:][counted], reduction="none")
+    row_of_token = counted.nonzero()[:, 0]
+    totals = torch.zeros(len(rows), device=device, dtype=token_lp.dtype).index_add(0, row_of_token, token_lp)
     return list(torch.split(totals, [len(e.sequences) for e in batch]))
 
 
@@ -149,18 +154,48 @@ def fit_temperature(log_probs: list[torch.Tensor], golds: list[int]) -> float:
     return float(log_t.detach().exp().clamp(0.05, 20.0))
 
 
-def evaluate(model, examples: list[Encoded], batch_size: int):
+def make_batches(examples: list[Encoded], max_examples: int, max_tokens: int) -> list[list[int]]:
+    """長さの近い例をまとめ、1 ステップの「列の数 × 長さ」が `max_tokens` に収まるバッチに分ける（添字の並び）。
+
+    1 バッチの列は、いちばん長い列の長さにそろえて計算するので、長い例が 1 つ混じると全体が重くなる。
+    長さの順に並べてから区切ると、パディングが減り、GPU のメモリも読みやすくなる。
+    """
+    width = [max(len(s) for s in e.sequences) for e in examples]
+    batches, current, rows, longest = [], [], 0, 0
+    for i in sorted(range(len(examples)), key=lambda i: width[i]):
+        n = len(examples[i].sequences)
+        if current and (len(current) >= max_examples or (rows + n) * max(longest, width[i]) > max_tokens):
+            batches.append(current)
+            current, rows, longest = [], 0, 0
+        current.append(i)
+        rows += n
+        longest = max(longest, width[i])
+    if current:
+        batches.append(current)
+    return batches
+
+
+def evaluate(model, examples: list[Encoded], batch_size: int, max_tokens: int = 1 << 30):
     """dev の log P（例ごと）と、decision loss、top-1 を返す。"""
     model.eval()
-    log_probs = []
+    log_probs: list[torch.Tensor | None] = [None] * len(examples)
     with torch.no_grad():
-        for i in range(0, len(examples), batch_size):
-            log_probs += [lp.cpu() for lp in candidate_log_probs(model, examples[i : i + batch_size])]
+        for batch in make_batches(examples, batch_size, max_tokens):
+            for i, lp in zip(batch, candidate_log_probs(model, [examples[i] for i in batch])):
+                log_probs[i] = lp.cpu()
     if not examples:
         return log_probs, {"examples": 0}
     loss = sum(decision_loss(lp, e.gold).item() for lp, e in zip(log_probs, examples)) / len(examples)
-    top1 = sum(int(lp.argmax()) == e.gold for lp, e in zip(log_probs, examples)) / len(examples)
-    return log_probs, {"examples": len(examples), "decision_loss": loss, "top1": top1}
+    hits = [int(lp.argmax()) == e.gold for lp, e in zip(log_probs, examples)]
+    # 正解が段1の候補にあった例だけの top-1（実際の変換に近い。足した正解は「毛色の違う 1 つ」として当てやすい）
+    inside = [h for h, e in zip(hits, examples) if e.in_stage1]
+    return log_probs, {
+        "examples": len(examples),
+        "decision_loss": loss,
+        "top1": sum(hits) / len(examples),
+        "examples_in_stage1": len(inside),
+        "top1_in_stage1": sum(inside) / len(inside) if inside else None,
+    }
 
 
 def llama_cpp_dir() -> Path:
@@ -205,15 +240,30 @@ def read_examples(path: Path):
             yield e
 
 
-def _encode_all(tokenizer, path: Path, max_candidates: int, limit: int | None) -> list[Encoded]:
+def _encode_all(
+    tokenizer, path: Path, max_candidates: int, limit: int | None, only_in_stage1: bool = False
+) -> list[Encoded]:
     out = []
     for e in read_examples(path):
         if limit is not None and len(out) >= limit:
             break
         enc = encode(tokenizer, e, max_candidates)
-        if enc is not None:
+        if enc is not None and (enc.in_stage1 or not only_in_stage1):
             out.append(enc)
     return out
+
+
+def _peak_gpu_gb(device: str) -> float | None:
+    """GPU のメモリの最大使用量（GB）。バッチの大きさを決める目安"""
+    return round(torch.cuda.max_memory_allocated() / 1e9, 2) if device == "cuda" else None
+
+
+def _save_checkpoint(path: Path, state: dict) -> None:
+    """途中で止めても壊れないよう、書き終えてから置き換える。"""
+    path.mkdir(parents=True, exist_ok=True)
+    tmp = path / "checkpoint.pt.tmp"
+    torch.save(state, tmp)
+    tmp.replace(path / "checkpoint.pt")
 
 
 def run(args) -> dict:
@@ -221,13 +271,14 @@ def run(args) -> dict:
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     model, tokenizer = load(args.base, device)
-    train_set = _encode_all(tokenizer, args.train, args.max_candidates, args.limit)
+    # 正解を後から足した例は、正解だけが段1の作らない文になり「毛色の違う 1 つ」を選ぶ学習になるので、既定では使わない
+    train_set = _encode_all(tokenizer, args.train, args.max_candidates, args.limit, not args.keep_added_gold)
     dev_set = _encode_all(tokenizer, args.dev, args.max_candidates, args.limit)
     if not train_set:
         raise ValueError(f"{args.train}: no training examples")
 
-    steps_per_epoch = math.ceil(len(train_set) / args.batch_size)
-    total_steps = steps_per_epoch * args.epochs
+    batches = make_batches(train_set, args.batch_size, args.max_batch_tokens)
+    total_steps = len(batches) * args.epochs
     warmup = max(1, int(total_steps * args.warmup))
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     # 線形のウォームアップのあと、0 まで線形に下げる
@@ -237,13 +288,64 @@ def run(args) -> dict:
     # GPU では bf16 の自動混合精度で速くする（重みと最適化は f32 のまま）
     autocast = torch.autocast("cuda", dtype=torch.bfloat16) if device == "cuda" else contextlib.nullcontext()
 
-    step, started, history = 0, time.monotonic(), []
-    for epoch in range(args.epochs):
-        model.train()
-        order = list(range(len(train_set)))
-        random.shuffle(order)
-        for i in range(0, len(order), args.batch_size):
-            batch = [train_set[j] for j in order[i : i + args.batch_size]]
+    step, history, resumed_from = 0, [], None
+    start_epoch, start_position, saved_order = 0, 0, None
+    checkpoint = args.checkpoint / "checkpoint.pt" if args.checkpoint else None
+    if args.resume:
+        if checkpoint is None or not checkpoint.is_file():
+            raise ValueError("--resume needs --checkpoint DIR that has checkpoint.pt")
+        ck = torch.load(checkpoint, map_location=device, weights_only=False)
+        if ck["total_steps"] != total_steps:
+            raise ValueError(f"{checkpoint}: made for {ck['total_steps']} steps, but this run has {total_steps}")
+        model.load_state_dict(ck["model"])
+        optimizer.load_state_dict(ck["optimizer"])
+        schedule.load_state_dict(ck["schedule"])
+        step = resumed_from = ck["step"]
+        start_epoch, start_position, saved_order = ck["epoch"], ck["position"], ck["order"]
+        history, dev_before = ck["history"], ck["dev_before"]
+        # 乱数（例の順番、ドロップアウト）も止めたところから続ける
+        random.setstate(ck["python_rng"])
+        torch.set_rng_state(ck["torch_rng"])
+        if device == "cuda" and ck.get("cuda_rng") is not None:
+            torch.cuda.set_rng_state_all(ck["cuda_rng"])
+        print(f"resumed from step {step}/{total_steps}", file=sys.stderr)
+    else:
+        _, dev_before = evaluate(model, dev_set, args.batch_size, args.max_batch_tokens)
+
+    def save(epoch: int, position: int, order) -> None:
+        if checkpoint is None:
+            return
+        _save_checkpoint(
+            args.checkpoint,
+            {
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "schedule": schedule.state_dict(),
+                "step": step,
+                "total_steps": total_steps,
+                "epoch": epoch,
+                "position": position,
+                "order": order,
+                "history": history,
+                "dev_before": dev_before,
+                "python_rng": random.getstate(),
+                "torch_rng": torch.get_rng_state(),
+                "cuda_rng": torch.cuda.get_rng_state_all() if device == "cuda" else None,
+            },
+        )
+
+    started = time.monotonic()
+    for epoch in range(start_epoch, args.epochs):
+        if epoch == start_epoch and saved_order is not None:
+            order = saved_order
+        else:
+            # バッチの中身は長さで決まっているので、エポックごとにバッチの順番を混ぜる
+            order = list(range(len(batches)))
+            random.shuffle(order)
+        first = start_position if epoch == start_epoch else 0
+        for i in range(first, len(order)):
+            model.train()
+            batch = [train_set[j] for j in batches[order[i]]]
             with autocast:
                 total, decision, lm = losses(model, batch, args.lm_weight)
             optimizer.zero_grad(set_to_none=True)
@@ -258,11 +360,25 @@ def run(args) -> dict:
                     f"decision {decision.item():.4f} lm {lm.item():.4f} ({time.monotonic() - started:.0f}s)",
                     file=sys.stderr,
                 )
-        _, dev_report = evaluate(model, dev_set, args.batch_size)
+            done_in_epoch = i + 1 >= len(order)
+            if args.stop_after and step >= args.stop_after and step < total_steps:
+                # 止める（GPU サーバーの時間を区切るとき）。続きは --resume で
+                save(epoch + 1 if done_in_epoch else epoch, 0 if done_in_epoch else i + 1,
+                     None if done_in_epoch else order)
+                report = {"device": device, "steps": step, "total_steps": total_steps, "stopped": True,
+                          "seconds": round(time.monotonic() - started, 1), "final_lr": schedule.get_last_lr()[0],
+                          "peak_gpu_gb": _peak_gpu_gb(device)}
+                args.out.mkdir(parents=True, exist_ok=True)
+                (args.out / "train.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+                return report
+            if args.checkpoint_every and step % args.checkpoint_every == 0 and not done_in_epoch:
+                save(epoch, i + 1, order)
+        _, dev_report = evaluate(model, dev_set, args.batch_size, args.max_batch_tokens)
         history.append({"epoch": epoch + 1, **dev_report})
         print(f"epoch {epoch + 1} dev {json.dumps(dev_report)}", file=sys.stderr)
+        save(epoch + 1, 0, None)
 
-    dev_log_probs, dev_report = evaluate(model, dev_set, args.batch_size)
+    dev_log_probs, dev_report = evaluate(model, dev_set, args.batch_size, args.max_batch_tokens)
     temperature = fit_temperature(dev_log_probs, [e.gold for e in dev_set])
 
     args.out.mkdir(parents=True, exist_ok=True)
@@ -288,11 +404,18 @@ def run(args) -> dict:
         "epochs": args.epochs,
         "steps": step,
         "batch_size": args.batch_size,
+        "max_batch_tokens": args.max_batch_tokens,
         "lr": args.lr,
         "lm_weight": args.lm_weight,
         "max_candidates": args.max_candidates,
+        "keep_added_gold": args.keep_added_gold,
         "seconds": round(time.monotonic() - started, 1),
         "temperature": temperature,
+        "stopped": False,
+        "resumed_from": resumed_from,
+        "final_lr": schedule.get_last_lr()[0],
+        "peak_gpu_gb": _peak_gpu_gb(device),
+        "dev_before": dev_before,
         "dev": dev_report,
         "history": history,
     }
@@ -310,16 +433,31 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--base", type=Path, default=ROOT / "data/zenz-v2.5-xsmall", help="元のモデル（Hugging Face 形式）")
     p.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     p.add_argument("--epochs", type=int, default=1)
-    p.add_argument("--batch-size", type=int, default=8, help="1 ステップの例の数（候補はその全部）")
+    p.add_argument("--batch-size", type=int, default=32, help="1 ステップの例の数の上限（候補はその全部）")
+    p.add_argument(
+        "--max-batch-tokens",
+        type=int,
+        default=16384,
+        help="1 ステップの「列の数 × いちばん長い列の長さ」の上限（GPU のメモリに合わせる）",
+    )
     p.add_argument("--lr", type=float, default=5e-5)
     p.add_argument("--weight-decay", type=float, default=0.01)
     p.add_argument("--warmup", type=float, default=0.05, help="ウォームアップの割合（全ステップに対して）")
     p.add_argument("--lm-weight", type=float, default=0.1, help="正解文の言語モデル損失の混合比。0 で decision loss だけ")
     p.add_argument("--max-candidates", type=int, default=32, help="1 例あたりの候補の上限（正解は必ず残す）")
+    p.add_argument(
+        "--keep-added-gold",
+        action="store_true",
+        help="段1の候補に正解がなく、正解を足した例も学習に使う（既定では使わない）",
+    )
     p.add_argument("--limit", type=int, help="train と dev のそれぞれで、使える例をこの数まで使う（長すぎて落とした例は数えない）")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--log-every", type=int, default=50)
     p.add_argument("--f32", action="store_true", help="答え合わせ用に f32 の GGUF も書く")
+    p.add_argument("--checkpoint", type=Path, help="途中の状態を保存するフォルダ（各エポックの終わりと --checkpoint-every ごと）")
+    p.add_argument("--checkpoint-every", type=int, default=500, help="このステップごとにも保存する（0 で各エポックの終わりだけ）")
+    p.add_argument("--resume", action="store_true", help="--checkpoint のフォルダの続きから学習する")
+    p.add_argument("--stop-after", type=int, help="このステップまで学習したら、保存して止める（続きは --resume）")
     p.add_argument("--llama-cpp", type=Path, default=None, help="llama.cpp の変換スクリプトのフォルダ")
     return p
 
@@ -327,7 +465,7 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     p = parser()
     args = p.parse_args(argv)
-    if args.batch_size < 1 or args.epochs < 1 or args.max_candidates < 1:
+    if args.batch_size < 1 or args.epochs < 1 or args.max_candidates < 1 or args.max_batch_tokens < 1:
         p.error("--batch-size, --epochs and --max-candidates must be at least 1")
     if args.lm_weight < 0:
         p.error("--lm-weight must not be negative")
@@ -337,7 +475,7 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError, subprocess.CalledProcessError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
-    print(json.dumps({k: report[k] for k in ("device", "steps", "temperature", "dev")}, ensure_ascii=False))
+    print(json.dumps({k: report[k] for k in ("device", "steps", "stopped", "temperature", "dev") if k in report}, ensure_ascii=False))
     return 0
 
 

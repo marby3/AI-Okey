@@ -87,12 +87,15 @@ fn set_priority(priority: Priority) {
 }
 
 async fn serve(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    // 辞書と学習済みの段2は、指定がなければ実行ファイルと同じフォルダのものを使う
+    let exe_dir = std::env::current_exe()?
+        .parent()
+        .ok_or("no parent directory of the executable")?
+        .to_path_buf();
+    let config = config.with_bundled_model(&exe_dir);
     let dictionary = match &config.dictionary {
         Some(path) => path.clone(),
-        None => std::env::current_exe()?
-            .parent()
-            .ok_or("no parent directory of the executable")?
-            .join("aiokey.dic"),
+        None => exe_dir.join("aiokey.dic"),
     };
     let dictionary = Arc::new(
         Dictionary::open(&dictionary).map_err(|e| format!("{}: {}", dictionary.display(), e.0))?,

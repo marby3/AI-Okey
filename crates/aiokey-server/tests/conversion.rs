@@ -306,7 +306,10 @@ fn trained_model_next_to_the_server_is_the_default() {
     std::fs::write(dir.join("aiokey-stage2-q8_0.gguf"), b"gguf").unwrap();
     std::fs::write(dir.join("aiokey-stage2.json"), r#"{"temperature": 3.25}"#).unwrap();
     let config = defaults.with_bundled_model(&dir);
-    assert_eq!(config.stage2.model, Some(dir.join("aiokey-stage2-q8_0.gguf")));
+    assert_eq!(
+        config.stage2.model,
+        Some(dir.join("aiokey-stage2-q8_0.gguf"))
+    );
     assert_eq!(config.stage2.temperature, Some(3.25));
 
     // 設定ファイルで指定したものが優先する
