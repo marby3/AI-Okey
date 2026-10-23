@@ -6,6 +6,11 @@
 #ifndef MyAppVersion
   #define MyAppVersion "0.1.0"
 #endif
+; 入れるファイルのフォルダ。Release のワークフローは配布物の zip と同じフォルダを渡す（ISCC /DSourceDir=...）。
+; 開発用は scripts/build-windows.sh が集める ../build
+#ifndef SourceDir
+  #define SourceDir "../build"
+#endif
 #define MyAppPublisher "marby3"
 #define MyAppURL "https://github.com/marby3/AI-Okey/"
 
@@ -33,7 +38,7 @@ DisableProgramGroupPage=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
 OutputDir=../build
-OutputBaseFilename=aiokey-setup
+OutputBaseFilename=aiokey-setup-v{#MyAppVersion}
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
@@ -42,9 +47,20 @@ PrivilegesRequired=admin
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 
 [Files]
-Source: "../build/aiokey.dll"; DestDir: "{app}"; DestName: "aiokey.dll"; Flags: ignoreversion regserver 64bit
-Source: "../build/x86/aiokey.dll"; DestDir: "{app}"; DestName: "aiokey32.dll"; Flags: ignoreversion regserver 32bit
-Source: "../build/*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; TSF（x64 と x86）。インストールのときに登録し、アンインストールのときに登録を解除する
+Source: "{#SourceDir}/aiokey.dll"; DestDir: "{app}"; DestName: "aiokey.dll"; Flags: ignoreversion regserver 64bit restartreplace uninsrestartdelete
+Source: "{#SourceDir}/x86/aiokey.dll"; DestDir: "{app}"; DestName: "aiokey32.dll"; Flags: ignoreversion regserver 32bit restartreplace uninsrestartdelete
+; 変換サーバー、候補ウィンドウ、ランチャー、CLI、辞書、学習済みの段2とその校正値、ライセンス
+Source: "{#SourceDir}/aiokey-server.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}/aiokey-ui.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}/aiokey-launcher.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}/aiokey-cli.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourceDir}/aiokey.dic"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}/aiokey-stage2-q8_0.gguf"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourceDir}/aiokey-stage2.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourceDir}/LICENSE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourceDir}/NOTICE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourceDir}/MOZC-DICTIONARY-README.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "./AI-O Key Startup.xml"; Flags: dontcopy noencryption
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
@@ -59,6 +75,9 @@ Filename: "icacls"; \
   Flags: runhidden postinstall runascurrentuser
 
 [UninstallRun]
+; 動いているランチャー、サーバー、候補ウィンドウを止めてから消す
+Filename: "taskkill"; Parameters: "/F /IM aiokey-launcher.exe /IM aiokey-server.exe /IM aiokey-ui.exe"; \
+  Flags: runhidden runascurrentuser; RunOnceId: "StopAiokey"
 Filename: "schtasks"; \
   Parameters: "/Delete /TN ""AI-O Key Startup"" /F"; \
   Flags: runhidden runascurrentuser
@@ -70,6 +89,17 @@ begin
   Dependency_AddVC2015To2022x86;
 
   Result := True;
+end;
+
+// 入れ直し・更新のときに、動いているファイルを置き換えられるよう、先に止める（アプリに読み込まれている
+// aiokey.dll は止められないので、restartreplace で再起動のときに置き換える）
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Dummy: Integer;
+begin
+  Exec('taskkill', '/F /IM aiokey-launcher.exe /IM aiokey-server.exe /IM aiokey-ui.exe', '', SW_HIDE,
+    ewWaitUntilTerminated, Dummy);
+  Result := '';
 end;
 
 function UninstallNeedRestart(): Boolean;
