@@ -64,13 +64,24 @@ fn main() -> ExitCode {
                 continue;
             }
         };
-        match arg.as_str() {
-            "--dict" => dict_path = value.into(),
-            "-k" => k = value.parse().unwrap_or(k),
-            "--stage2" => stage2 = Some(value.into()),
-            "--threads" => threads = value.parse().unwrap_or(threads),
-            "--temperature" => temperature = value.parse().unwrap_or(temperature),
-            _ => iterations = value.parse().unwrap_or(iterations),
+        // 数値の誤りを黙って既定値にすると、測っている条件が知らないうちに変わるのでエラーにする
+        let parsed = match arg.as_str() {
+            "--dict" => {
+                dict_path = value.into();
+                Ok(())
+            }
+            "--stage2" => {
+                stage2 = Some(value.into());
+                Ok(())
+            }
+            "-k" => value.parse().map(|v| k = v).map_err(|_| ()),
+            "--threads" => value.parse().map(|v| threads = v).map_err(|_| ()),
+            "--temperature" => value.parse().map(|v| temperature = v).map_err(|_| ()),
+            _ => value.parse().map(|v| iterations = v).map_err(|_| ()),
+        };
+        if parsed.is_err() {
+            eprintln!("{arg}: not a number: {value}\n{USAGE}");
+            return ExitCode::from(2);
         }
     }
 

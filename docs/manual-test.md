@@ -26,7 +26,7 @@ NG があれば直して `rc` を出し直し、すべて OK になったら v1.
 
 | 項目 | 期待すること | 結果 |
 |---|---|---|
-| インストール | エラーなく終わる。`%APPDATA%\aiokey` に aiokey-server.exe、aiokey-ui.exe、aiokey-launcher.exe、aiokey.dic、aiokey-stage2-q8_0.gguf、aiokey-stage2.json がある | |
+| インストール | エラーなく終わる。`%APPDATA%\aiokey` に aiokey-server.exe、aiokey-ui.exe、aiokey-launcher.exe、aiokey-cli.exe、aiokey.dic、aiokey-stage2-q8_0.gguf、aiokey-stage2.json がある | |
 | 自動起動 | サインインし直したあと、タスク マネージャーに aiokey-server と aiokey-ui がある | |
 
 ## 3. 打って確かめる（メモ帳）
@@ -59,13 +59,18 @@ PowerShell で測る。計測した値は下の表に書く。
 Get-Process aiokey-server, aiokey-ui | Select-Object Name, @{n='WorkingSetMB'; e={[math]::Round($_.WorkingSet64 / 1MB, 1)}}
 ```
 
-**CPU 使用率（待機中）**：何も打たずに 1 分ほど置いてから（30 秒、5 秒おきに 6 回測る）：
+**CPU 使用率（待機中）**：何も打たずに 1 分ほど置いてから、5 秒おきに 6 回測る（Windows の表示言語に左右されない測り方。
+`PercentProcessorTime` は論理プロセッサ 1 つを 100 とした値なので、全体に対する割合はプロセッサの数で割る）：
 
 ```powershell
-Get-Counter '\Process(aiokey-server)\% Processor Time', '\Process(aiokey-ui)\% Processor Time' -SampleInterval 5 -MaxSamples 6
+1..6 | ForEach-Object {
+  Get-CimInstance Win32_PerfFormattedData_PerfProc_Process -Filter "Name LIKE 'aiokey%'" |
+    Select-Object Name, PercentProcessorTime
+  Start-Sleep 5
+}
 ```
 
-**段2の時間（AVX2）**：
+**段2の時間（AVX2）**：温度の 3.44 は、学習済みモデルの校正値（`aiokey-stage2.json` の `temperature`）。
 
 ```powershell
 $d = "$env:APPDATA\aiokey"
@@ -80,7 +85,7 @@ $d = "$env:APPDATA\aiokey"
 | aiokey-ui の WorkingSet（打鍵中） | 20 MB 以下 | |
 | 合計 | 150 MB 以下 | |
 | CPU 使用率（待機中、2 つの合計） | ほぼ 0% | |
-| 段2の p50 ／ p95（2 スレッド、上位 8 件） | 50 ms 以内 | |
-| 段1＋段2の p50 ／ p95 | 50 ms 以内 | |
+| 段2の p50 ／ p95（2 スレッド、上位 8 件） | 50 ms 以内（暫定。docs/spec.md の性能目標） | |
+| 段1＋段2の p50 ／ p95 | 50 ms 以内（暫定。同上） | |
 | llama.cpp の AVX2 | AVX2 = 1 | |
 | PC の CPU とメモリ | — | |

@@ -11,6 +11,21 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
+# 管理者の確認を 1 回で済ませるため、管理者でなければ、このスクリプトを管理者として起動し直す
+$admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $admin) {
+    $arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", "-Dir", "`"$Dir`"")
+    if ($Unregister) { $arguments += "-Unregister" }
+    try {
+        $p = Start-Process powershell.exe -ArgumentList $arguments -Verb RunAs -Wait -PassThru
+    } catch {
+        Write-Error "管理者の確認が取り消されました"
+        exit 1
+    }
+    exit $p.ExitCode
+}
+
 $targets = @(
     @{ Dll = (Join-Path $Dir "aiokey.dll"); Regsvr = "$env:SystemRoot\System32\regsvr32.exe" },
     @{ Dll = (Join-Path $Dir "x86\aiokey.dll"); Regsvr = "$env:SystemRoot\SysWOW64\regsvr32.exe" }
@@ -20,7 +35,7 @@ foreach ($t in $targets) {
     $arguments = @("/s")
     if ($Unregister) { $arguments += "/u" }
     $arguments += "`"$($t.Dll)`""
-    $p = Start-Process -FilePath $t.Regsvr -ArgumentList $arguments -Wait -PassThru -Verb RunAs
+    $p = Start-Process -FilePath $t.Regsvr -ArgumentList $arguments -Wait -PassThru
     if ($p.ExitCode -ne 0) { throw "regsvr32 $($arguments -join ' ') が失敗しました（終了コード $($p.ExitCode)）" }
     $action = if ($Unregister) { "解除" } else { "登録" }
     Write-Host "$action しました: $($t.Dll)"

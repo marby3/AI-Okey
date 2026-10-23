@@ -34,6 +34,7 @@ fn windows_build_uses_avx2_and_bench_reports_stage2_time() {
         .arg(root().join("data/models/zenz-v2.5-xsmall-q8_0.gguf"))
         .output()
         .unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
         out.status.success(),

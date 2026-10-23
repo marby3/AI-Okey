@@ -22,7 +22,8 @@ def test_release_builds_and_attaches_the_installer():
     for name in ["aiokey-server.exe", "aiokey-ui.exe", "aiokey-launcher.exe", "aiokey.dic",
                  "aiokey-stage2-q8_0.gguf", "aiokey-stage2.json"]:
         assert name in iss, name
-    assert "AI-O Key Startup" in iss  # ログオン時の自動起動（タスク スケジューラ）
+    # ログオン時の自動起動（インストールのあとでタスク スケジューラに登録する）
+    assert "/Create /F /TN \"AI-O Key Startup\"" in iss
     release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     assert "ISCC" in release and "installer/Installer.iss" in release
     create = release[release.index("gh release create") :].split("\n\n")[0]

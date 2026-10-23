@@ -4,7 +4,7 @@
 
 #define MyAppName "AI-O Key"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.0"
+  #define MyAppVersion "0.0.0-dev"
 #endif
 ; 入れるファイルのフォルダ。Release のワークフローは配布物の zip と同じフォルダを渡す（ISCC /DSourceDir=...）。
 ; 開発用は scripts/build-windows.sh が集める ../build
@@ -54,10 +54,10 @@ Source: "{#SourceDir}/x86/aiokey.dll"; DestDir: "{app}"; DestName: "aiokey32.dll
 Source: "{#SourceDir}/aiokey-server.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}/aiokey-ui.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}/aiokey-launcher.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDir}/aiokey-cli.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourceDir}/aiokey-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}/aiokey.dic"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDir}/aiokey-stage2-q8_0.gguf"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "{#SourceDir}/aiokey-stage2.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourceDir}/aiokey-stage2-q8_0.gguf"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}/aiokey-stage2.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}/LICENSE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#SourceDir}/NOTICE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#SourceDir}/MOZC-DICTIONARY-README.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
@@ -76,7 +76,7 @@ Filename: "icacls"; \
 
 [UninstallRun]
 ; 動いているランチャー、サーバー、候補ウィンドウを止めてから消す
-Filename: "taskkill"; Parameters: "/F /IM aiokey-launcher.exe /IM aiokey-server.exe /IM aiokey-ui.exe"; \
+Filename: "powershell.exe"; Parameters: "-NoProfile -Command ""{code:StopCommand}"""; \
   Flags: runhidden runascurrentuser; RunOnceId: "StopAiokey"
 Filename: "schtasks"; \
   Parameters: "/Delete /TN ""AI-O Key Startup"" /F"; \
@@ -93,12 +93,18 @@ end;
 
 // 入れ直し・更新のときに、動いているファイルを置き換えられるよう、先に止める（アプリに読み込まれている
 // aiokey.dll は止められないので、restartreplace で再起動のときに置き換える）
+// 入れる先のフォルダから動いているランチャー、サーバー、候補ウィンドウだけを止める（ほかの場所の同名のものは止めない）
+function StopCommand(Param: String): String;
+begin
+  Result := 'Get-Process aiokey-launcher, aiokey-server, aiokey-ui -ErrorAction SilentlyContinue | ' +
+    'Where-Object { $_.Path -like ''' + ExpandConstant('{app}') + '\*'' } | Stop-Process -Force';
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Dummy: Integer;
 begin
-  Exec('taskkill', '/F /IM aiokey-launcher.exe /IM aiokey-server.exe /IM aiokey-ui.exe', '', SW_HIDE,
-    ewWaitUntilTerminated, Dummy);
+  Exec('powershell.exe', '-NoProfile -Command "' + StopCommand('') + '"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
   Result := '';
 end;
 
