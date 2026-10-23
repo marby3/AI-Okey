@@ -320,6 +320,25 @@ fn trained_model_next_to_the_server_is_the_default() {
 }
 
 #[test]
+fn stage2_defaults_are_the_values_decided_on_dev() {
+    // Issue #13 基準 7：dev セットで決めた値（docs/eval/stage2-trained.md）が既定値になっている
+    let doc = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/eval/stage2-trained.md"
+    ))
+    .unwrap();
+    let s = Config::default().stage2;
+    for (key, value) in [
+        ("stage2.skip_cost_gap", s.skip_cost_gap.to_string()),
+        ("stage2.margin_threshold", s.margin_threshold.to_string()),
+    ] {
+        let line = format!("（`{key}`）= {value}。");
+        assert!(doc.contains(&line), "{line}");
+    }
+    assert!(doc.contains(&format!("| **{}（既定）** |", s.max_candidates)));
+}
+
+#[test]
 fn toml_sets_threads_priority_thresholds_and_unload_time() {
     let defaults = Config::default();
     assert_eq!(defaults.stage2.threads, 2);
