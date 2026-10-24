@@ -64,6 +64,10 @@ Source: "{#SourceDir}/MOZC-DICTIONARY-README.txt"; DestDir: "{app}"; Flags: igno
 Source: "./AI-O Key Startup.xml"; Flags: dontcopy noencryption
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
+[InstallDelete]
+; rc.1 まではタスクから launch.vbs 経由でランチャーを起動していた
+Type: files; Name: "{app}\launch.vbs"
+
 [Run]
 Filename: "icacls"; \
   Parameters: "{app}\aiokey.dll /grant ""*S-1-15-2-1:(RX)"""; \
@@ -127,53 +131,57 @@ begin
     end;
   end;
 end;
-procedure UpdateTaskXml();
-var
-  TaskXmlPath: string;
-  TaskXmlContentAnsi: AnsiString;
-  TaskXmlContent: String;
-  Dummy: Integer;
+// XML の文字列に入れるために、& < > " ' を置き換える
+function XmlEscape(S: String): String;
 begin
-  ExtractTemporaryFile('AI-O Key Startup.xml'); // ファイル展開
-  TaskXmlPath := ExpandConstant('{tmp}\AI-O Key Startup.xml');
-
-  LoadStringFromFile(TaskXmlPath, TaskXmlContentAnsi)
-
-  TaskXmlContent := String(TaskXmlContentAnsi);
-
-  StringChange(TaskXmlContent, 'PATH_TO_VBS', ExpandConstant('{app}\launch.vbs'));
-  TaskXmlContentAnsi := AnsiString(TaskXmlContent);
-  SaveStringToFile(TaskXmlPath, TaskXmlContentAnsi, False);
-
-  ShellExec('', 'schtasks', '/Create /F /TN "AI-O Key Startup" /XML "' + TaskXmlPath + '"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
-  ShellExec('', 'schtasks', '/Run /TN "AI-O Key Startup"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
+  Result := S;
+  StringChangeEx(Result, '&', '&amp;', True);
+  StringChangeEx(Result, '<', '&lt;', True);
+  StringChangeEx(Result, '>', '&gt;', True);
+  StringChangeEx(Result, '"', '&quot;', True);
+  StringChangeEx(Result, '''', '&apos;', True);
 end;
 
-procedure CreateVbsFile();
+// ログオン時にランチャーを起動するタスクを登録し、すぐに一度動かす。
+// 候補ウィンドウは UIAccess を得るために管理者の権限が要るので、タスク スケジューラの「最上位の特権」で動かす。
+// XML は UTF-8 で書く（ユーザー名やフォルダに日本語やスペースがあっても壊れないように）
+procedure UpdateTaskXml();
 var
-  VbsFile: string;
-  VbsContent: AnsiString;
+  TaskXmlPath: String;
+  TaskXmlContentAnsi: AnsiString;
+  TaskXmlContent: String;
+  Lines: TArrayOfString;
+  ResultCode: Integer;
 begin
-  VbsFile := ExpandConstant('{app}\launch.vbs');
-  VbsContent :=
-    'Set objShell = CreateObject("WScript.Shell")' + #13#10 +
-    'objShell.Run "' + ExpandConstant('{app}\aiokey-launcher.exe') + '", 0, False' + #13#10;
+  ExtractTemporaryFile('AI-O Key Startup.xml');
+  TaskXmlPath := ExpandConstant('{tmp}\AI-O Key Startup.xml');
+  // ひな形は ASCII だけなので、そのまま読んでよい
+  LoadStringFromFile(TaskXmlPath, TaskXmlContentAnsi);
+  TaskXmlContent := String(TaskXmlContentAnsi);
+  StringChangeEx(TaskXmlContent, 'PATH_TO_LAUNCHER', XmlEscape(ExpandConstant('{app}\aiokey-launcher.exe')), True);
+  StringChangeEx(TaskXmlContent, 'USER_ID', XmlEscape(GetEnv('USERDOMAIN') + '\' + GetUserNameString), True);
+  SetArrayLength(Lines, 1);
+  Lines[0] := TaskXmlContent;
+  SaveStringsToUTF8File(TaskXmlPath, Lines, False);
 
-  if SaveStringToFile(VbsFile, VbsContent, False) then
+  if not Exec('schtasks', '/Create /F /TN "AI-O Key Startup" /XML "' + TaskXmlPath + '"', '', SW_HIDE,
+    ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
   begin
-    Log('VBS file created: ' + VbsFile);
-  end
-  else
-  begin
-    Log('Failed to create VBS file: ' + VbsFile);
+    Log(Format('schtasks /Create failed: %d', [ResultCode]));
+    SuppressibleMsgBox('ログオン時の自動起動を登録できませんでした（schtasks: ' + IntToStr(ResultCode) + '）。' + #13#10 +
+      ExpandConstant('{app}\aiokey-launcher.exe') + ' を管理者として実行すると、AI-O Key を使えます。',
+      mbError, MB_OK, IDOK);
+    Exit;
   end;
+  if not Exec('schtasks', '/Run /TN "AI-O Key Startup"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
+    or (ResultCode <> 0) then
+    Log(Format('schtasks /Run failed: %d', [ResultCode]));
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    CreateVbsFile();
     UpdateTaskXml();
   end;
 end;

@@ -41,3 +41,31 @@ def test_manual_test_explains_how_to_measure_memory_and_cpu():
     doc = (ROOT / "docs/manual-test.md").read_text(encoding="utf-8")
     for item in ["aiokey-server", "aiokey-ui", "WorkingSet", "CPU", "150", "20"]:
         assert item in doc, item
+
+
+def test_startup_task_is_written_as_utf8_and_runs_the_launcher_for_the_installing_user():
+    # rc.1：タスクの XML を ANSI で書き直していた（UTF-8 と宣言しているので、日本語のユーザー名で壊れる）。
+    # vbs の引数のパスに引用符がなく、実行者も Administrators グループだったので、サーバーが起動しなかった
+    iss = (ROOT / "installer/Installer.iss").read_text(encoding="utf-8")
+    assert "SaveStringsToUTF8File" in iss
+    assert "AnsiString(TaskXmlContent)" not in iss
+    assert "launch.vbs" not in iss.split("[InstallDelete]")[0] and "wscript" not in iss
+    assert "XmlEscape" in iss
+    xml = (ROOT / "installer/AI-O Key Startup.xml").read_text(encoding="utf-8")
+    assert "PATH_TO_LAUNCHER" in xml and "USER_ID" in xml and "<GroupId>" not in xml
+    assert "<LogonType>InteractiveToken</LogonType>" in xml
+    assert "<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>" in xml
+    # 登録に失敗したら、黙らずに知らせる
+    assert "ResultCode" in iss and "MsgBox" in iss
+
+
+def test_tsf_activates_without_the_server_and_connects_on_the_first_key():
+    # rc.1：Activate は、サーバーにつながらないとキーのシンクを登録せずに抜け、つながっても空の
+    # append_text（サーバーが拒む）で失敗していた。サーバーが後から起動したときにもつなぎ直さなかった
+    tip = (ROOT / "crates/aiokey-tsf/src/tsf/text_input_proccesor.rs").read_text(encoding="utf-8")
+    activate = tip[tip.index("fn Activate") : tip.index("fn Deactivate")]
+    assert 'append_text("".to_string())' not in activate
+    assert "return Ok(());" not in activate
+    composition = (ROOT / "crates/aiokey-tsf/src/engine/composition.rs").read_text(encoding="utf-8")
+    assert "IMEState::connect()" in composition
+    assert '.context("ipc_service is None")' not in composition

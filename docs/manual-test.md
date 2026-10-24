@@ -27,7 +27,7 @@ NG があれば直して `rc` を出し直し、すべて OK になったら v1.
 | 項目 | 期待すること | 結果 |
 |---|---|---|
 | インストール | エラーなく終わる。`%APPDATA%\aiokey` に aiokey-server.exe、aiokey-ui.exe、aiokey-launcher.exe、aiokey-cli.exe、aiokey.dic、aiokey-stage2-q8_0.gguf、aiokey-stage2.json がある | |
-| 自動起動 | サインインし直したあと、タスク マネージャーに aiokey-server と aiokey-ui がある | |
+| 自動起動 | インストールの直後と、サインインし直したあとの両方で、タスク マネージャーの「詳細」に aiokey-server と aiokey-ui がある（ないときは末尾の「動かないとき」） | |
 
 ## 3. 打って確かめる（メモ帳）
 
@@ -89,3 +89,18 @@ $d = "$env:APPDATA\aiokey"
 | 段1＋段2の p50 ／ p95 | 50 ms 以内（暫定。同上） | |
 | llama.cpp の AVX2 | AVX2 = 1 | |
 | PC の CPU とメモリ | — | |
+
+## 動かないとき
+
+サーバーと候補ウィンドウはランチャーが起動し、その出力と終わり方を `%LOCALAPPDATA%\aiokey\logs\launcher.log` に残す。
+タスク マネージャーの「詳細」に aiokey-server と aiokey-ui がないときは、次の 2 つの結果を Issue に貼る。
+
+```powershell
+Get-Content "$env:LOCALAPPDATA\aiokey\logs\launcher.log"
+schtasks /Query /TN "AI-O Key Startup" /V /FO LIST | Select-String "前回の結果|Last Result|実行するタスク|Task To Run|実行ユーザー|Run As User"
+```
+
+launcher.log がないときは、ランチャーが起動していない（タスクの登録か実行に失敗している）。
+タスクを使わずに確かめるときは、`%APPDATA%\aiokey\aiokey-launcher.exe` を右クリックして「管理者として実行」する。
+
+サーバーが後から起動しても、AI-O Key に切り替えたままキーを打てばつながる（つながるまでは英字がそのまま入る）。
