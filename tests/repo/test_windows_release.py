@@ -69,3 +69,8 @@ def test_tsf_activates_without_the_server_and_connects_on_the_first_key():
     composition = (ROOT / "crates/aiokey-tsf/src/engine/composition.rs").read_text(encoding="utf-8")
     assert "IMEState::connect()" in composition
     assert '.context("ipc_service is None")' not in composition
+
+
+def test_register_script_has_a_utf8_bom_for_windows_powershell():
+    # Windows PowerShell 5.1 は BOM のない .ps1 を ANSI（日本語版は Shift_JIS）で読むので、日本語が化ける
+    assert (ROOT / "scripts/register.ps1").read_bytes().startswith(b"\xef\xbb\xbf")

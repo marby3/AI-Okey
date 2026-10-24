@@ -33,10 +33,15 @@ impl ITfTextInputProcessor_Impl for TextServiceFactory_Impl {
 
         // 変換サーバーにつなぐ。つながらなくても有効化は続ける（キーのシンクを登録しないとキーが届かない）。
         // サーバーが後から起動したときは、最初のキー入力でつなぐ（IMEState::connect）
-        if let Some(mut ipc_service) = IMEState::connect()? {
-            if let Err(e) = ipc_service.clear_text() {
-                tracing::error!("Failed to reset the server's input: {e:?}");
+        // （Activate がエラーを返すと、前の IME のアイコンが出たままになるので、ここで失敗させない）
+        match IMEState::connect() {
+            Ok(Some(mut ipc_service)) => {
+                if let Err(e) = ipc_service.clear_text() {
+                    tracing::error!("Failed to reset the server's input: {e:?}");
+                }
             }
+            Ok(None) => {}
+            Err(e) => tracing::error!("Failed to connect to the server: {e:?}"),
         }
 
         let mut text_service = self.borrow_mut()?;
