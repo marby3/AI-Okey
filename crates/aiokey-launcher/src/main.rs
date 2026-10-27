@@ -133,8 +133,10 @@ fn forward(stream: impl Read + Send + 'static, prefix: &str, log: &Log) -> JoinH
     let prefix = prefix.to_string();
     let log = log.clone();
     thread::spawn(move || {
-        for line in BufReader::new(stream).lines().map_while(Result::ok) {
-            write_line(&log, &format!("{prefix}: {line}"));
+        // UTF-8 でない行があっても読み続ける（止めるとパイプが詰まり、子プロセスが書き込みで止まる）
+        for line in BufReader::new(stream).split(b'\n').map_while(Result::ok) {
+            let line = String::from_utf8_lossy(&line);
+            write_line(&log, &format!("{prefix}: {}", line.trim_end_matches('\r')));
         }
     })
 }

@@ -7,7 +7,7 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -17,7 +17,7 @@ fn temp_dir(name: &str) -> PathBuf {
     dir
 }
 
-fn write_script(path: &PathBuf, body: &str) {
+fn write_script(path: &Path, body: &str) {
     fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
 }
@@ -68,7 +68,10 @@ fn a_second_launcher_exits_without_starting_anything() {
         .env("AIOKEY_LOG_DIR", &logs)
         .spawn()
         .unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    // 1 つ目がサーバーを起動する（ロックを取った後）まで待つ
+    while !starts.exists() {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     let begin = std::time::Instant::now();
     let second = Command::new(&launcher)
         .env("AIOKEY_LOG_DIR", &logs)

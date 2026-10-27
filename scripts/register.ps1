@@ -13,6 +13,12 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
+# フォルダが違っていれば、管理者の確認を出す前に知らせる
+if (-not (Test-Path (Join-Path $Dir "aiokey.dll"))) {
+    Write-Error "$Dir に aiokey.dll が見つかりません（-Dir で、zip を展開したフォルダを指定してください）"
+    exit 1
+}
+
 # 管理者の確認を 1 回で済ませるため、管理者でなければ、このスクリプトを管理者として起動し直す
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator)

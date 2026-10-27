@@ -45,3 +45,19 @@ fn windows_build_uses_avx2_and_bench_reports_stage2_time() {
         assert!(stdout.contains(line), "{line}: {stdout}");
     }
 }
+
+#[test]
+fn bench_rejects_malformed_numbers() {
+    for args in [
+        ["--threads", "abc"],
+        ["--temperature", "x"],
+        ["--iterations", "-1"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_aiokey-cli"))
+            .arg("bench")
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2), "{args:?}: {output:?}");
+    }
+}

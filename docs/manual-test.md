@@ -5,6 +5,8 @@ NG があれば直して `rc` を出し直し、すべて OK になったら v1.
 
 用意するもの：Windows 10／11（x64、AVX2 のある CPU。2013 年ごろ以降の Intel／AMD）、Release の
 `aiokey-v1.0.0-rc.N-windows.zip` と `aiokey-setup-v1.0.0-rc.N.exe`。
+インストーラーは、AI-O Key を使うユーザー自身で実行する（管理者の確認で別のアカウントを入れると、そのアカウントの
+`%APPDATA%` に入り、自動起動もそのアカウントに登録される）。
 
 ## 1. 登録スクリプト（zip）
 
