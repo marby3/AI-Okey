@@ -4,7 +4,12 @@
 
 #define MyAppName "AI-O Key"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.0"
+  #define MyAppVersion "0.0.0-dev"
+#endif
+; 入れるファイルのフォルダ。Release のワークフローは配布物の zip と同じフォルダを渡す（ISCC /DSourceDir=...）。
+; 開発用は scripts/build-windows.sh が集める ../build
+#ifndef SourceDir
+  #define SourceDir "../build"
 #endif
 #define MyAppPublisher "marby3"
 #define MyAppURL "https://github.com/marby3/AI-Okey/"
@@ -33,7 +38,7 @@ DisableProgramGroupPage=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
 OutputDir=../build
-OutputBaseFilename=aiokey-setup
+OutputBaseFilename=aiokey-setup-v{#MyAppVersion}
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
@@ -42,13 +47,36 @@ PrivilegesRequired=admin
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 
 [Files]
-Source: "../build/aiokey.dll"; DestDir: "{app}"; DestName: "aiokey.dll"; Flags: ignoreversion regserver 64bit
-Source: "../build/x86/aiokey.dll"; DestDir: "{app}"; DestName: "aiokey32.dll"; Flags: ignoreversion regserver 32bit
-Source: "../build/*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "./AI-O Key Startup.xml"; Flags: dontcopy noencryption
+; TSF（x64 と x86）。インストールのときに登録し、アンインストールのときに登録を解除する
+Source: "{#SourceDir}/aiokey.dll"; DestDir: "{app}"; DestName: "aiokey.dll"; Flags: ignoreversion regserver 64bit restartreplace uninsrestartdelete
+Source: "{#SourceDir}/x86/aiokey.dll"; DestDir: "{app}"; DestName: "aiokey32.dll"; Flags: ignoreversion regserver 32bit restartreplace uninsrestartdelete
+; 変換サーバー、候補ウィンドウ、ランチャー、CLI、辞書、学習済みの段2とその校正値、ライセンス
+Source: "{#SourceDir}/aiokey-server.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}/aiokey-ui.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}/aiokey-launcher.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}/aiokey-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}/aiokey.dic"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}/aiokey-stage2-q8_0.gguf"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}/aiokey-stage2.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}/LICENSE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourceDir}/NOTICE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourceDir}/MOZC-DICTIONARY-README.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
+[Registry]
+; ログオン時にランチャーを起動する（ユーザーの Run キー。管理者の権限は要らない）。
+; 自動起動に失敗していても、IME が最初のキー入力でランチャーを起動する
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "AI-O Key"; ValueData: """{app}\aiokey-launcher.exe"""; Flags: uninsdeletevalue
+
+[InstallDelete]
+; rc.1 まではタスクから launch.vbs 経由でランチャーを起動していた
+Type: files; Name: "{app}\launch.vbs"
+
 [Run]
+; rc.2 まではタスク スケジューラで起動していた（実機で登録されなかった）。残っていれば消す
+Filename: "schtasks"; Parameters: "/Delete /TN ""AI-O Key Startup"" /F"; Flags: runhidden
+; インストールの直後に、管理者ではないユーザーとして起動する（サインインし直さなくても使える）
+Filename: "{app}\aiokey-launcher.exe"; Flags: nowait runasoriginaluser
 Filename: "icacls"; \
   Parameters: "{app}\aiokey.dll /grant ""*S-1-15-2-1:(RX)"""; \
   Description: "Grant Permission"; \
@@ -59,6 +87,9 @@ Filename: "icacls"; \
   Flags: runhidden postinstall runascurrentuser
 
 [UninstallRun]
+; 動いているランチャー、サーバー、候補ウィンドウを止めてから消す
+Filename: "powershell.exe"; Parameters: "-NoProfile -Command ""{code:StopCommand}"""; \
+  Flags: runhidden runascurrentuser; RunOnceId: "StopAiokey"
 Filename: "schtasks"; \
   Parameters: "/Delete /TN ""AI-O Key Startup"" /F"; \
   Flags: runhidden runascurrentuser
@@ -70,6 +101,23 @@ begin
   Dependency_AddVC2015To2022x86;
 
   Result := True;
+end;
+
+// 入れ直し・更新のときに、動いているファイルを置き換えられるよう、先に止める（アプリに読み込まれている
+// aiokey.dll は止められないので、restartreplace で再起動のときに置き換える）
+// 入れる先のフォルダから動いているランチャー、サーバー、候補ウィンドウだけを止める（ほかの場所の同名のものは止めない）
+function StopCommand(Param: String): String;
+begin
+  Result := 'Get-Process aiokey-launcher, aiokey-server, aiokey-ui -ErrorAction SilentlyContinue | ' +
+    'Where-Object { $_.Path -like ''' + ExpandConstant('{app}') + '\*'' } | Stop-Process -Force';
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Dummy: Integer;
+begin
+  Exec('powershell.exe', '-NoProfile -Command "' + StopCommand('') + '"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
+  Result := '';
 end;
 
 function UninstallNeedRestart(): Boolean;
@@ -89,56 +137,6 @@ begin
       Result := True;
       Exit;
     end;
-  end;
-end;
-procedure UpdateTaskXml();
-var
-  TaskXmlPath: string;
-  TaskXmlContentAnsi: AnsiString;
-  TaskXmlContent: String;
-  Dummy: Integer;
-begin
-  ExtractTemporaryFile('AI-O Key Startup.xml'); // ファイル展開
-  TaskXmlPath := ExpandConstant('{tmp}\AI-O Key Startup.xml');
-
-  LoadStringFromFile(TaskXmlPath, TaskXmlContentAnsi)
-
-  TaskXmlContent := String(TaskXmlContentAnsi);
-
-  StringChange(TaskXmlContent, 'PATH_TO_VBS', ExpandConstant('{app}\launch.vbs'));
-  TaskXmlContentAnsi := AnsiString(TaskXmlContent);
-  SaveStringToFile(TaskXmlPath, TaskXmlContentAnsi, False);
-
-  ShellExec('', 'schtasks', '/Create /F /TN "AI-O Key Startup" /XML "' + TaskXmlPath + '"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
-  ShellExec('', 'schtasks', '/Run /TN "AI-O Key Startup"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
-end;
-
-procedure CreateVbsFile();
-var
-  VbsFile: string;
-  VbsContent: AnsiString;
-begin
-  VbsFile := ExpandConstant('{app}\launch.vbs');
-  VbsContent :=
-    'Set objShell = CreateObject("WScript.Shell")' + #13#10 +
-    'objShell.Run "' + ExpandConstant('{app}\aiokey-launcher.exe') + '", 0, False' + #13#10;
-
-  if SaveStringToFile(VbsFile, VbsContent, False) then
-  begin
-    Log('VBS file created: ' + VbsFile);
-  end
-  else
-  begin
-    Log('Failed to create VBS file: ' + VbsFile);
-  end;
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-begin
-  if CurStep = ssPostInstall then
-  begin
-    CreateVbsFile();
-    UpdateTaskXml();
   end;
 end;
 

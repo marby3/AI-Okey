@@ -119,7 +119,11 @@ thread_local! {
 }
 
 pub fn run() -> Result<()> {
-    prepare_uiaccess_token()?;
+    // UIAccess があると、管理者として動くアプリやスタート メニューの上にも候補を出せる。
+    // 得られないときも、ふつうのアプリの上には出せるので、そのまま動く
+    if let Err(e) = prepare_uiaccess_token() {
+        eprintln!("aiokey-ui: running without UIAccess: {e:?}");
+    }
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }

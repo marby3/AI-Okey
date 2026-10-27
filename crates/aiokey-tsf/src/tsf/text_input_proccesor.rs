@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    engine::{ipc_service, state::IMEState},
+    engine::state::IMEState,
     globals::{DllModule, GUID_DISPLAY_ATTRIBUTE},
 };
 
@@ -28,18 +28,20 @@ impl ITfTextInputProcessor_Impl for TextServiceFactory_Impl {
         tracing::debug!("Activated with tid: {tid}");
 
         // add reference to the dll instance to prevent it from being unloaded
-        let mut dll_instance = DllModule::get()?;
-        dll_instance.add_ref();
+        // （ロックはすぐ外す。サーバーにつなげないときにランチャーを起動するのに、DLL のパスを使う）
+        DllModule::get()?.add_ref();
 
-        // initialize ipc_service
-        if let Ok(mut ipc_service) = ipc_service::IPCService::new() {
-            ipc_service.append_text("".to_string())?;
-            IMEState::get()?.ipc_service = Some(ipc_service);
-        } else {
-            // Activate() should not return an error
-            // if Activate() returns an error, the icon of the previously activated TextService will be displayed, which may confuse the user
-            tracing::error!("Failed to initialize IPC service");
-            return Ok(());
+        // 変換サーバーにつなぐ。つながらなくても有効化は続ける（キーのシンクを登録しないとキーが届かない）。
+        // サーバーが後から起動したときは、最初のキー入力でつなぐ（IMEState::connect）
+        // （Activate がエラーを返すと、前の IME のアイコンが出たままになるので、ここで失敗させない）
+        match IMEState::connect() {
+            Ok(Some(mut ipc_service)) => {
+                if let Err(e) = ipc_service.clear_text() {
+                    tracing::error!("Failed to reset the server's input: {e:?}");
+                }
+            }
+            Ok(None) => {}
+            Err(e) => tracing::error!("Failed to connect to the server: {e:?}"),
         }
 
         let mut text_service = self.borrow_mut()?;
@@ -111,8 +113,7 @@ impl ITfTextInputProcessor_Impl for TextServiceFactory_Impl {
         tracing::debug!("Deactivated");
 
         // remove reference to the dll instance
-        let mut dll_instance = DllModule::get()?;
-        dll_instance.release();
+        DllModule::get()?.release();
 
         {
             let text_service = self.borrow()?;

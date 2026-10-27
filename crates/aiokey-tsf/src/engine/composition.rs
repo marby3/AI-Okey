@@ -111,6 +111,10 @@ impl TextServiceFactory {
         } else {
             return Ok(false);
         };
+        // 変換サーバーにつながらないときは、キーをそのままアプリに渡す
+        if IMEState::connect()?.is_none() {
+            return Ok(false);
+        }
 
         if let Some((actions, transition)) = self.process_key(context, wparam)? {
             self.handle_action(&actions, transition)?;
@@ -144,10 +148,9 @@ impl TextServiceFactory {
         let mut selection_index = composition.selection_index;
         let mut committed_context = composition.context.clone();
         let mut window_open = composition.window_open;
-        let mut ipc_service = IMEState::get()?
-            .ipc_service
-            .clone()
-            .context("ipc_service is None")?;
+        let Some(mut ipc_service) = IMEState::connect()? else {
+            anyhow::bail!("not connected to the server");
+        };
         let mut transition = transition;
 
         self.update_context(&preview)?;
