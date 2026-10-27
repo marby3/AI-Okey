@@ -49,3 +49,37 @@ fn logs_the_output_and_exit_of_each_program_and_survives_a_missing_one() {
         "{log}"
     );
 }
+
+#[test]
+fn a_second_launcher_exits_without_starting_anything() {
+    // ログオン時の自動起動と、IME が最初のキー入力で起動するのが重なっても、サーバーは 1 つだけ動く
+    let dir = temp_dir("single");
+    let launcher = dir.join("aiokey-launcher");
+    fs::copy(env!("CARGO_BIN_EXE_aiokey-launcher"), &launcher).unwrap();
+    let starts = dir.join("starts");
+    write_script(
+        &dir.join("aiokey-server"),
+        &format!("echo x >> {}\nsleep 3", starts.display()),
+    );
+    write_script(&dir.join("aiokey-ui"), "sleep 3");
+
+    let logs = dir.join("logs");
+    let mut first = Command::new(&launcher)
+        .env("AIOKEY_LOG_DIR", &logs)
+        .spawn()
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let begin = std::time::Instant::now();
+    let second = Command::new(&launcher)
+        .env("AIOKEY_LOG_DIR", &logs)
+        .output()
+        .unwrap();
+    assert!(second.status.success(), "{second:?}");
+    assert!(begin.elapsed() < std::time::Duration::from_secs(2));
+    first.wait().unwrap();
+
+    assert_eq!(fs::read_to_string(&starts).unwrap().lines().count(), 1);
+    // 先に動いているランチャーのログを消さない
+    let log = fs::read_to_string(logs.join("launcher.log")).unwrap();
+    assert!(log.contains("[server] started"), "{log}");
+}

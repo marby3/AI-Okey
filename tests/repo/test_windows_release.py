@@ -22,8 +22,6 @@ def test_release_builds_and_attaches_the_installer():
     for name in ["aiokey-server.exe", "aiokey-ui.exe", "aiokey-launcher.exe", "aiokey.dic",
                  "aiokey-stage2-q8_0.gguf", "aiokey-stage2.json"]:
         assert name in iss, name
-    # ログオン時の自動起動（インストールのあとでタスク スケジューラに登録する）
-    assert "/Create /F /TN \"AI-O Key Startup\"" in iss
     release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     assert "ISCC" in release and "installer/Installer.iss" in release
     create = release[release.index("gh release create") :].split("\n\n")[0]
@@ -43,20 +41,27 @@ def test_manual_test_explains_how_to_measure_memory_and_cpu():
         assert item in doc, item
 
 
-def test_startup_task_is_written_as_utf8_and_runs_the_launcher_for_the_installing_user():
-    # rc.1：タスクの XML を ANSI で書き直していた（UTF-8 と宣言しているので、日本語のユーザー名で壊れる）。
-    # vbs の引数のパスに引用符がなく、実行者も Administrators グループだったので、サーバーが起動しなかった
+def test_launcher_starts_at_logon_from_the_users_run_key_and_right_after_install():
+    # rc.2：タスク スケジューラのタスクが実機で登録されていなかった。ランチャーは管理者でなくても動く
+    # （候補ウィンドウも UIAccess を得られた）ので、管理者の権限の要らないユーザーの Run キーで起動する
     iss = (ROOT / "installer/Installer.iss").read_text(encoding="utf-8")
-    assert "SaveStringsToUTF8File" in iss
-    assert "AnsiString(TaskXmlContent)" not in iss
-    assert "launch.vbs" not in iss.split("[InstallDelete]")[0] and "wscript" not in iss
-    assert "XmlEscape" in iss
-    xml = (ROOT / "installer/AI-O Key Startup.xml").read_text(encoding="utf-8")
-    assert "PATH_TO_LAUNCHER" in xml and "USER_ID" in xml and "<GroupId>" not in xml
-    assert "<LogonType>InteractiveToken</LogonType>" in xml
-    assert "<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>" in xml
-    # 登録に失敗したら、黙らずに知らせる
-    assert "ResultCode" in iss and "MsgBox" in iss
+    run_key = [l for l in iss.splitlines() if "CurrentVersion\\Run" in l]
+    assert run_key and "HKCU" in run_key[0] and "uninsdeletevalue" in run_key[0]
+    assert '"""{app}\\aiokey-launcher.exe"""' in run_key[0]
+    assert "/Create" not in iss and not (ROOT / "installer/AI-O Key Startup.xml").exists()
+    # インストールの直後に、管理者ではないユーザーとして起動する。rc.2 までのタスクは消す
+    launch = [l for l in iss.splitlines() if l.startswith('Filename: "{app}\\aiokey-launcher.exe"')]
+    assert launch and "runasoriginaluser" in launch[0] and "nowait" in launch[0]
+    assert '/Delete /TN ""AI-O Key Startup"" /F' in iss.split("[UninstallRun]")[0]
+
+
+def test_ime_starts_the_launcher_when_the_server_is_not_running():
+    # 自動起動に失敗していても、最初のキー入力でランチャーを起動する（アプリのジョブから切り離す）
+    state = (ROOT / "crates/aiokey-tsf/src/engine/state.rs").read_text(encoding="utf-8")
+    assert "aiokey-launcher.exe" in state and "CREATE_BREAKAWAY_FROM_JOB" in state
+    # 候補ウィンドウは、UIAccess を得られなくても動き続ける
+    app = (ROOT / "crates/aiokey-ui/src/app.rs").read_text(encoding="utf-8")
+    assert "prepare_uiaccess_token()?" not in app
 
 
 def test_tsf_activates_without_the_server_and_connects_on_the_first_key():

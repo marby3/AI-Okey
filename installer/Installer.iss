@@ -61,14 +61,22 @@ Source: "{#SourceDir}/aiokey-stage2.json"; DestDir: "{app}"; Flags: ignoreversio
 Source: "{#SourceDir}/LICENSE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#SourceDir}/NOTICE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#SourceDir}/MOZC-DICTIONARY-README.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "./AI-O Key Startup.xml"; Flags: dontcopy noencryption
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
+
+[Registry]
+; ログオン時にランチャーを起動する（ユーザーの Run キー。管理者の権限は要らない）。
+; 自動起動に失敗していても、IME が最初のキー入力でランチャーを起動する
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "AI-O Key"; ValueData: """{app}\aiokey-launcher.exe"""; Flags: uninsdeletevalue
 
 [InstallDelete]
 ; rc.1 まではタスクから launch.vbs 経由でランチャーを起動していた
 Type: files; Name: "{app}\launch.vbs"
 
 [Run]
+; rc.2 まではタスク スケジューラで起動していた（実機で登録されなかった）。残っていれば消す
+Filename: "schtasks"; Parameters: "/Delete /TN ""AI-O Key Startup"" /F"; Flags: runhidden
+; インストールの直後に、管理者ではないユーザーとして起動する（サインインし直さなくても使える）
+Filename: "{app}\aiokey-launcher.exe"; Flags: nowait runasoriginaluser
 Filename: "icacls"; \
   Parameters: "{app}\aiokey.dll /grant ""*S-1-15-2-1:(RX)"""; \
   Description: "Grant Permission"; \
@@ -129,60 +137,6 @@ begin
       Result := True;
       Exit;
     end;
-  end;
-end;
-// XML の文字列に入れるために、& < > " ' を置き換える
-function XmlEscape(S: String): String;
-begin
-  Result := S;
-  StringChangeEx(Result, '&', '&amp;', True);
-  StringChangeEx(Result, '<', '&lt;', True);
-  StringChangeEx(Result, '>', '&gt;', True);
-  StringChangeEx(Result, '"', '&quot;', True);
-  StringChangeEx(Result, '''', '&apos;', True);
-end;
-
-// ログオン時にランチャーを起動するタスクを登録し、すぐに一度動かす。
-// 候補ウィンドウは UIAccess を得るために管理者の権限が要るので、タスク スケジューラの「最上位の特権」で動かす。
-// XML は UTF-8 で書く（ユーザー名やフォルダに日本語やスペースがあっても壊れないように）
-procedure UpdateTaskXml();
-var
-  TaskXmlPath: String;
-  TaskXmlContentAnsi: AnsiString;
-  TaskXmlContent: String;
-  Lines: TArrayOfString;
-  ResultCode: Integer;
-begin
-  ExtractTemporaryFile('AI-O Key Startup.xml');
-  TaskXmlPath := ExpandConstant('{tmp}\AI-O Key Startup.xml');
-  // ひな形は ASCII だけなので、そのまま読んでよい
-  LoadStringFromFile(TaskXmlPath, TaskXmlContentAnsi);
-  TaskXmlContent := String(TaskXmlContentAnsi);
-  StringChangeEx(TaskXmlContent, 'PATH_TO_LAUNCHER', XmlEscape(ExpandConstant('{app}\aiokey-launcher.exe')), True);
-  StringChangeEx(TaskXmlContent, 'USER_ID', XmlEscape(GetEnv('USERDOMAIN') + '\' + GetUserNameString), True);
-  SetArrayLength(Lines, 1);
-  Lines[0] := TaskXmlContent;
-  SaveStringsToUTF8File(TaskXmlPath, Lines, False);
-
-  if not Exec('schtasks', '/Create /F /TN "AI-O Key Startup" /XML "' + TaskXmlPath + '"', '', SW_HIDE,
-    ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
-  begin
-    Log(Format('schtasks /Create failed: %d', [ResultCode]));
-    SuppressibleMsgBox('ログオン時の自動起動を登録できませんでした（schtasks: ' + IntToStr(ResultCode) + '）。' + #13#10 +
-      ExpandConstant('{app}\aiokey-launcher.exe') + ' を管理者として実行すると、AI-O Key を使えます。',
-      mbError, MB_OK, IDOK);
-    Exit;
-  end;
-  if not Exec('schtasks', '/Run /TN "AI-O Key Startup"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
-    or (ResultCode <> 0) then
-    Log(Format('schtasks /Run failed: %d', [ResultCode]));
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-begin
-  if CurStep = ssPostInstall then
-  begin
-    UpdateTaskXml();
   end;
 end;
 

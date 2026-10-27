@@ -28,8 +28,8 @@ impl ITfTextInputProcessor_Impl for TextServiceFactory_Impl {
         tracing::debug!("Activated with tid: {tid}");
 
         // add reference to the dll instance to prevent it from being unloaded
-        let mut dll_instance = DllModule::get()?;
-        dll_instance.add_ref();
+        // （ロックはすぐ外す。サーバーにつなげないときにランチャーを起動するのに、DLL のパスを使う）
+        DllModule::get()?.add_ref();
 
         // 変換サーバーにつなぐ。つながらなくても有効化は続ける（キーのシンクを登録しないとキーが届かない）。
         // サーバーが後から起動したときは、最初のキー入力でつなぐ（IMEState::connect）
@@ -113,8 +113,7 @@ impl ITfTextInputProcessor_Impl for TextServiceFactory_Impl {
         tracing::debug!("Deactivated");
 
         // remove reference to the dll instance
-        let mut dll_instance = DllModule::get()?;
-        dll_instance.release();
+        DllModule::get()?.release();
 
         {
             let text_service = self.borrow()?;

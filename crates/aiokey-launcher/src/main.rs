@@ -1,4 +1,5 @@
-//! 変換サーバーと候補ウィンドウを起動する。ログオン時にタスク スケジューラから動く（インストーラーが登録する）。
+//! 変換サーバーと候補ウィンドウを起動する。ログオン時にユーザーの Run キーから動き（インストーラーが登録する）、
+//! サーバーが動いていなければ IME も最初のキー入力で起動する。すでに動いていれば何もせずに終わる。
 //!
 //! 画面には何も出さないので、サーバーと候補ウィンドウの出力と終わり方は `launcher.log` に残す。
 //! Windows は `%LOCALAPPDATA%\aiokey\logs`、unix は `$XDG_STATE_HOME/aiokey/logs`（なければ
@@ -27,6 +28,17 @@ fn main() -> anyhow::Result<()> {
 
     let dir = log_dir();
     fs::create_dir_all(&dir)?;
+    // ログオン時の自動起動と IME からの起動が重なることがあるので、1 つだけ動かす。
+    // ロックはランチャーが終わるまで持つ（プロセスが終われば OS が外す）
+    // （ロックされたファイルは Windows では切り詰められないので、File::create は使わない）
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join("launcher.lock"))?;
+    if lock.try_lock().is_err() {
+        return Ok(());
+    }
     let log: Log = Arc::new(Mutex::new(File::create(dir.join("launcher.log"))?));
     write_line(
         &log,

@@ -21,13 +21,14 @@ NG があれば直して `rc` を出し直し、すべて OK になったら v1.
 ## 2. インストーラー
 
 1. `aiokey-setup-v1.0.0-rc.N.exe` を実行する（入れる先は `%APPDATA%\aiokey`）。
-2. サインアウトしてサインインし直す（ログオン時の自動起動を確かめるため）。
+2. タスク マネージャーで確かめてから、再起動してサインインし直す（ログオン時の自動起動を確かめるため）。
 3. 「キーボードの追加」で AI-O Key を足し、Windows キー＋スペースで AI-O Key に切り替える。
 
 | 項目 | 期待すること | 結果 |
 |---|---|---|
 | インストール | エラーなく終わる。`%APPDATA%\aiokey` に aiokey-server.exe、aiokey-ui.exe、aiokey-launcher.exe、aiokey-cli.exe、aiokey.dic、aiokey-stage2-q8_0.gguf、aiokey-stage2.json がある | |
-| 自動起動 | インストールの直後と、サインインし直したあとの両方で、タスク マネージャーの「詳細」に aiokey-server と aiokey-ui がある（ないときは末尾の「動かないとき」） | |
+| 自動起動 | インストールの直後と、再起動してサインインしたあとの両方で、タスク マネージャーの「詳細」に aiokey-server と aiokey-ui がある（ないときは末尾の「動かないとき」） | |
+| IME からの起動 | タスク マネージャーで aiokey-launcher、aiokey-server、aiokey-ui を終了してから、メモ帳で AI-O Key に切り替えて打つと、数秒のうちにかな入力に戻る（それまでは英字がそのまま入ってよい） | |
 
 ## 3. 打って確かめる（メモ帳）
 
@@ -92,15 +93,16 @@ $d = "$env:APPDATA\aiokey"
 
 ## 動かないとき
 
-サーバーと候補ウィンドウはランチャーが起動し、その出力と終わり方を `%LOCALAPPDATA%\aiokey\logs\launcher.log` に残す。
-タスク マネージャーの「詳細」に aiokey-server と aiokey-ui がないときは、次の 2 つの結果を Issue に貼る。
+ランチャーは、ログオン時にユーザーの Run キー（スタートアップ）から起動する。起動していなくても、AI-O Key に
+切り替えて打てば、IME がランチャーを起動する（つながるまでの数秒は英字がそのまま入る）。
+ランチャーは、サーバーと候補ウィンドウの出力と終わり方を `%LOCALAPPDATA%\aiokey\logs\launcher.log` に残す。
+タスク マネージャーの「詳細」に aiokey-server と aiokey-ui がないときは、次の結果を Issue に貼る。
 
 ```powershell
+Get-Item "$env:LOCALAPPDATA\aiokey\logs\launcher.log" | Format-List LastWriteTime
 Get-Content "$env:LOCALAPPDATA\aiokey\logs\launcher.log"
-schtasks /Query /TN "AI-O Key Startup" /V /FO LIST | Select-String "前回の結果|Last Result|実行するタスク|Task To Run|実行ユーザー|Run As User"
+Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "AI-O Key"
 ```
 
-launcher.log がないときは、ランチャーが起動していない（タスクの登録か実行に失敗している）。
-タスクを使わずに確かめるときは、`%APPDATA%\aiokey\aiokey-launcher.exe` を右クリックして「管理者として実行」する。
-
-サーバーが後から起動しても、AI-O Key に切り替えたままキーを打てばつながる（つながるまでは英字がそのまま入る）。
+launcher.log の時刻がサインインした時刻より前なら、ランチャーが起動していない。
+「設定 → アプリ → スタートアップ」で AI-O Key がオフになっていないかも確かめる。
