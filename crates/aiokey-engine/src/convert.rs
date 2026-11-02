@@ -24,6 +24,8 @@ const MAX_PATHS_PER_START: usize = 128;
 const MAX_ENTRIES_PER_SPAN: usize = 40;
 /// 未知語（辞書にないかな 1 文字）のコスト。
 const UNKNOWN_COST: i32 = 9000;
+/// 文の途中の `/` を「・」と読むときのコスト（#47）。
+const MIDDLE_DOT_COST: i32 = UNKNOWN_COST / 2;
 /// A* で取り出す回数の上限。
 const MAX_POPS: usize = 50_000;
 /// A* で 1 回に広げる前の語の上限。
@@ -305,8 +307,10 @@ fn add_unknown_nodes(dict: &Dictionary, lattice: &InputLattice, nodes: &mut Vec<
             Unit::Long => push("ー".to_string(), UNKNOWN_COST),
             Unit::Separator => push(" ".to_string(), 0),
             Unit::English(word) => push(word.clone(), UNKNOWN_COST),
-            // 英字の続かない `/` は中黒（かなモードの TSF は `/` をそのまま送る）
-            Unit::Other(ENGLISH_PREFIX) => push("・".to_string(), UNKNOWN_COST),
+            // 英語の指定でない `/` は中黒（かなモードの TSF は `/` をそのまま送る）。コストは辞書にない語の半分にして、
+            // 文の途中では英語の指定を 1 位に、「・」の候補もすぐ下に並べる（0 では英語の指定が上位から消え、
+            // 辞書にない語と同じでは「・」が上位に出ない。#47）
+            Unit::Other(ENGLISH_PREFIX) => push("・".to_string(), MIDDLE_DOT_COST),
             Unit::Other(c) => push(c.to_string(), UNKNOWN_COST),
         }
     }

@@ -73,23 +73,31 @@ pub fn parse(input: &str) -> InputLattice {
         }
 
         if c == ENGLISH_PREFIX {
-            // 次の区切り（または末尾）までを英単語として扱う
+            // 次の区切りか次の `/`（または末尾）までを英単語として扱う
             let end = chars[i + 1..]
                 .iter()
-                .position(|&c| c == SEPARATOR)
+                .position(|&c| c == SEPARATOR || c == ENGLISH_PREFIX)
                 .map_or(chars.len(), |p| i + 1 + p);
             let word: String = chars[i + 1..end].iter().collect();
-            let unit = if word.is_empty() {
-                Unit::Other(c)
+            if !word.is_empty() {
+                edges.push(Edge {
+                    start: i,
+                    end,
+                    unit: Unit::English(word),
+                });
+            }
+            // 打ち始めの `/` は英語の指定だけ。文の途中の `/` は「・」（Other）とも読み、続きをふつうに読む
+            // （ジョン・F・ケネディ → `zyq/F/knd`）
+            if i == 0 && end > i + 1 {
+                i = end;
             } else {
-                Unit::English(word)
-            };
-            edges.push(Edge {
-                start: i,
-                end,
-                unit,
-            });
-            i = end;
+                edges.push(Edge {
+                    start: i,
+                    end: i + 1,
+                    unit: Unit::Other(c),
+                });
+                i += 1;
+            }
             continue;
         }
 
