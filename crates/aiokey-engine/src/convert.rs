@@ -111,6 +111,54 @@ pub fn convert(dict: &Dictionary, input: &str, options: &Options) -> Vec<Candida
     candidates
 }
 
+/// ラティスに置く語（段2で文を生成するときの制約に使う。#40）。`start..end` は入力の文字位置。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LatticeWord {
+    pub start: usize,
+    pub end: usize,
+    pub surface: String,
+    pub reading: String,
+    pub cost: i32,
+}
+
+/// 入力の長さ（文字数）と、段1のラティスに置く語をすべて返す。辞書にない語として置くひらがなには、
+/// 同じ読みのカタカナも足す（辞書にないカタカナ語を生成で組み立てられるように）。
+pub fn lattice_words(dict: &Dictionary, input: &str) -> (usize, Vec<LatticeWord>) {
+    let lattice = parse(input);
+    let mut words = Vec::new();
+    for n in build_nodes(dict, &lattice) {
+        if n.cost == UNKNOWN_COST {
+            let katakana = to_katakana(&n.surface);
+            if katakana != n.surface {
+                words.push(LatticeWord {
+                    start: n.start,
+                    end: n.end,
+                    surface: katakana,
+                    reading: n.reading.clone(),
+                    cost: n.cost,
+                });
+            }
+        }
+        words.push(LatticeWord {
+            start: n.start,
+            end: n.end,
+            surface: n.surface,
+            reading: n.reading,
+            cost: n.cost,
+        });
+    }
+    (lattice.len(), words)
+}
+
+fn to_katakana(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            'ぁ'..='ゖ' => char::from_u32(c as u32 + 0x60).unwrap_or(c),
+            _ => c,
+        })
+        .collect()
+}
+
 /// 英語指定の印の `/` を取り除く。英単語は次の `/` で終わるので（入力パーサーと同じ）、`/` はすべて印になる。
 fn without_english_prefixes(input: &str) -> String {
     input

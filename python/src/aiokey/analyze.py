@@ -15,6 +15,8 @@
   （9 件）、段1の候補（K 件）に入る割合、1 位の文字の一致率
 - errors：誤りを「候補に正解がない」「候補にあるが 1 位でない」に分け、原因（辞書にない語、固有名詞・カタカナ語、
   数字、英字、読みの違い・表記の違い）ごとの割合と、文の長さごとの誤りの割合
+
+`compare` は、段2で文を生成する方式（#40 の試作）と今の方式を、同じ例で比べる（`compare()`）。
 """
 
 from __future__ import annotations
@@ -22,6 +24,8 @@ from __future__ import annotations
 import json
 import random
 import re
+import statistics
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Iterable, Iterator
@@ -249,5 +253,85 @@ def analyze(examples: Iterable[dict], analyzer: Analyzer) -> tuple[dict, list[di
         },
         "error_rate_by_length": {k: {"examples": c["examples"], "error_rate": c["errors"] / c["examples"]}
                                  for k, c in lengths.items()},
+    }
+    return report, rows
+
+
+# #40：比べる方式
+METHODS = {"current": "今の方式", "generate": "生成だけ", "combined": "合わせた"}
+
+
+class Generator:
+    """段2で文を生成する方式（#40 の試作）。Analyzer の変換器と採点器を使う。"""
+
+    def __init__(self, analyzer: Analyzer, beam: int = 8, cost_weight: float = 0.5):
+        self.analyzer = analyzer
+        self.beam = beam
+        self.cost_weight = cost_weight
+
+    def generate(self, e: dict) -> list[str]:
+        a = self.analyzer
+        out = a.scorer.generate(a.converter, e.get("context", ""), e["input"], self.beam, self.cost_weight)
+        return [s for s, _ in out]
+
+    def combined(self, e: dict) -> list[str]:
+        """段1が迷わないときは今の方式のまま。迷うときは、段1の上位と生成の候補を合わせて段2で並べ、
+        残りの段1の候補を後ろにつなぐ。"""
+        a = self.analyzer
+        c = a.converter.convert_with_costs(e["input"], a.k)
+        stage1 = [s for s, _, _ in c]
+        if len(c) < 2 or c[1][2] - c[0][2] >= a.skip_cost_gap:
+            return stage1
+        pool = list(dict.fromkeys(stage1[: a.max_candidates] + self.generate(e)))
+        probs, _ = a.scorer.score(e.get("context", ""), e["input"], [(s, s) for s in pool])
+        ranked = [pool[i] for i in sorted(range(len(pool)), key=lambda i: -probs[i])]
+        return ranked + [s for s in stage1 if s not in pool]
+
+    def candidates(self, e: dict, method: str) -> list[str]:
+        if method == "current":
+            return self.analyzer.rank(e)["surfaces"]
+        if method == "generate":
+            return self.generate(e)
+        return self.combined(e)
+
+
+def percentile(values: list[float], q: float) -> float:
+    return statistics.quantiles(values, n=100, method="inclusive")[q - 1] if len(values) > 1 else values[0]
+
+
+def compare(examples: Iterable[dict], generator: Generator, methods: Iterable[str] = METHODS) -> tuple[dict, list[dict]]:
+    """方式ごと・単位と入力ごとに、完全一致・1 ページ目・候補に正解がある割合と、1 回の変換の時間（ms）を返す。"""
+    methods = list(methods)
+    measures: dict[str, dict[str, Counter]] = {m: {} for m in methods}
+    times: dict[str, dict[str, list[float]]] = {m: {} for m in methods}
+    rows = []
+    for e in examples:
+        key = f"{e.get('unit', 'sentence')}/{'vowels' if e.get('vowels_kept') else 'consonants'}"
+        row = {k: e.get(k) for k in ("set", "id", "unit", "context", "input", "target", "vowels_kept")}
+        for method in methods:
+            started = time.perf_counter()
+            surfaces = generator.candidates(e, method)
+            times[method].setdefault(key, []).append((time.perf_counter() - started) * 1000)
+            rank = surfaces.index(e["target"]) + 1 if e["target"] in surfaces else None
+            m = measures[method].setdefault(key, Counter())
+            m["examples"] += 1
+            m["top1"] += rank == 1
+            m["page1"] += rank is not None and rank <= PAGE
+            m["in_candidates"] += rank is not None
+            row[method] = {"rank": rank, "top": surfaces[:PAGE]}
+        rows.append(row)
+    report = {
+        method: {
+            key: {
+                "examples": m["examples"],
+                "top1": m["top1"] / m["examples"],
+                "page1": m["page1"] / m["examples"],
+                "in_candidates": m["in_candidates"] / m["examples"],
+                "ms_p50": percentile(times[method][key], 50),
+                "ms_p95": percentile(times[method][key], 95),
+            }
+            for key, m in sorted(measures[method].items())
+        }
+        for method in methods
     }
     return report, rows

@@ -8,6 +8,10 @@
 //!   候補の部分はトークンのトライに並べ、共通するトークンは複数の系列（seq_id）にまたがる 1 トークンとして
 //!   1 回のバッチで計算する。
 //! - 先頭の KV はキー入力をまたいで残す。前回と一致する部分は計算し直さない。
+//!
+//! 試作として、入力に合う文を生成する [`Scorer::generate`] もある（#40、[`generate`] モジュール）。
+
+pub mod generate;
 
 use std::collections::HashMap;
 use std::num::NonZeroU32;
@@ -22,6 +26,8 @@ use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::token::LlamaToken;
 use self_cell::self_cell;
+
+use generate::{expand, finish, worth_continuing, Beam, Constraint, GenerateOptions, VocabTrie};
 
 /// zenz の区切りトークン（https://github.com/azooKey/AzooKeyKanaKanjiConverter の ZenzPromptBuilder と同じ）。
 const INPUT_TAG: char = '\u{EE00}';
@@ -162,6 +168,8 @@ pub struct Scorer {
     config: Config,
     /// 系列 0 に置いてある先頭のトークン（次の採点で使い回す）
     cached_prefix: Vec<LlamaToken>,
+    /// 生成に使う語彙のトライ（初めて生成するときに作る）
+    vocab_trie: Option<VocabTrie>,
 }
 
 // SAFETY: llama.cpp のモデルとコンテキストは、同時に使わなければ別のスレッドへ移してよい。
@@ -203,6 +211,7 @@ impl Scorer {
             inner,
             config: config.clone(),
             cached_prefix: Vec::new(),
+            vocab_trie: None,
         })
     }
 
@@ -417,6 +426,156 @@ impl Scorer {
         })
     }
 
+    /// 入力に合う文を生成し、(表記, 並べる値) を高い順に返す（#40 の試作。aiokey 形式のモデルだけ）。
+    ///
+    /// プロンプトは系列 0 に置いたまま残すので、続けて [`Scorer::score`] を呼ぶとその KV を使い回す。
+    /// ビームの系列には 1..=2×beam を使うので、`max_candidates` は 2×beam 以上にしておく。
+    pub fn generate(
+        &mut self,
+        context: &str,
+        input: &str,
+        constraint: &Constraint,
+        options: &GenerateOptions,
+    ) -> Result<Vec<(String, f32)>, String> {
+        if self.config.format != PromptFormat::Aiokey {
+            return Err("generate needs the aiokey prompt format".to_string());
+        }
+        let beam = options.beam.max(1);
+        if 2 * beam > self.config.max_candidates {
+            return Err(format!(
+                "max_candidates ({}) must be at least 2 x beam ({beam})",
+                self.config.max_candidates
+            ));
+        }
+        if self.vocab_trie.is_none() {
+            let model = self.inner.borrow_owner();
+            self.vocab_trie = Some(VocabTrie::new(model.tokens(false)));
+        }
+        let eos = self.inner.borrow_owner().vocab().eos();
+        let prompt_tokens = self.tokenize(&prompt(self.config.format, context, input, ""));
+        if prompt_tokens.is_empty() || prompt_tokens.len() > BATCH_BUDGET {
+            return Ok(Vec::new());
+        }
+
+        // プロンプトを系列 0 に置く（前回と一致する部分は使い回す）
+        let mut reused = common_prefix(&self.cached_prefix, &prompt_tokens);
+        if reused == prompt_tokens.len() {
+            reused -= 1;
+        }
+        let mut batch = LlamaBatch::new(prompt_tokens.len() - reused, 1);
+        for (pos, &token) in prompt_tokens.iter().enumerate().skip(reused) {
+            batch
+                .add(token, pos as i32, &[0], pos + 1 == prompt_tokens.len())
+                .map_err(|e| e.to_string())?;
+        }
+        let max_seq = self.config.max_candidates as i32;
+        let row = self
+            .inner
+            .with_dependent_mut(|_, ctx| -> Result<Vec<f32>, String> {
+                ctx.clear_kv_cache_seq(Some(0), Some(reused as u32), None)
+                    .map_err(|e| e.to_string())?;
+                for s in 1..=max_seq {
+                    ctx.clear_kv_cache_seq(Some(s as u32), None, None)
+                        .map_err(|e| e.to_string())?;
+                }
+                ctx.decode(&mut batch).map_err(|e| e.to_string())?;
+                Ok(log_softmax(ctx.get_logits_ith(batch.n_tokens() - 1)))
+            })?;
+        self.cached_prefix = prompt_tokens.clone();
+
+        let trie = self.vocab_trie.as_ref().expect("built above");
+        let mut beams = vec![Beam {
+            seq: 0,
+            tokens: Vec::new(),
+            bytes: Vec::new(),
+            state: constraint.start(),
+            log_p: 0.0,
+            score: 0.0,
+            row,
+        }];
+        let mut finished = Vec::new();
+        // 1 トークンは 1 バイト以上を当てはめるので、表記のバイト数で抑えられる。念のための上限
+        let max_steps = 4 * input.len() + 16;
+        let mut bank = 1;
+        for _ in 0..max_steps {
+            if !worth_continuing(&beams, &finished, beam) {
+                break;
+            }
+            let mut expansions = expand(
+                &beams,
+                trie,
+                constraint,
+                eos,
+                beam,
+                options.cost_weight,
+                &mut finished,
+            );
+            // 同じ表記になる伸ばし方（トークンの切り方の違い）は、log P の高いほうだけ残す
+            let mut seen = std::collections::HashSet::new();
+            expansions.retain(|x| {
+                let mut bytes = beams[x.parent].bytes.clone();
+                bytes.extend(trie_piece(self.inner.borrow_owner(), x.token));
+                seen.insert(bytes)
+            });
+            if expansions.is_empty() {
+                break;
+            }
+            let base = if bank == 1 { 1 } else { beam as i32 + 1 };
+            bank = 3 - bank;
+            let mut batch = LlamaBatch::new(expansions.len(), 1);
+            for (j, x) in expansions.iter().enumerate() {
+                let pos = prompt_tokens.len() + beams[x.parent].tokens.len();
+                batch
+                    .add(x.token, pos as i32, &[base + j as i32], true)
+                    .map_err(|e| e.to_string())?;
+            }
+            let parents: Vec<i32> = expansions.iter().map(|x| beams[x.parent].seq).collect();
+            let rows =
+                self.inner
+                    .with_dependent_mut(|_, ctx| -> Result<Vec<Vec<f32>>, String> {
+                        for (j, &parent) in parents.iter().enumerate() {
+                            let dest = base + j as i32;
+                            ctx.clear_kv_cache_seq(Some(dest as u32), None, None)
+                                .map_err(|e| e.to_string())?;
+                            ctx.copy_kv_cache_seq(parent, dest, None, None)
+                                .map_err(|e| e.to_string())?;
+                        }
+                        ctx.decode(&mut batch).map_err(|e| e.to_string())?;
+                        Ok((0..batch.n_tokens())
+                            .map(|i| log_softmax(ctx.get_logits_ith(i)))
+                            .collect())
+                    })?;
+            beams = expansions
+                .into_iter()
+                .zip(rows)
+                .enumerate()
+                .map(|(j, (x, row))| {
+                    let parent = &beams[x.parent];
+                    let mut tokens = parent.tokens.clone();
+                    tokens.push(x.token);
+                    let mut bytes = parent.bytes.clone();
+                    bytes.extend(trie_piece(self.inner.borrow_owner(), x.token));
+                    Beam {
+                        seq: base + j as i32,
+                        tokens,
+                        bytes,
+                        state: x.state,
+                        log_p: x.log_p,
+                        score: x.score,
+                        row,
+                    }
+                })
+                .collect();
+        }
+        // ビームの系列を消す（系列 0 のプロンプトは残す）
+        self.inner.with_dependent_mut(|_, ctx| {
+            for s in 1..=max_seq {
+                let _ = ctx.clear_kv_cache_seq(Some(s as u32), None, None);
+            }
+        });
+        Ok(finish(finished, beam))
+    }
+
     /// 候補を 1 つずつ単独で採点する（KV を共有しない。[`Scorer::score`] の答え合わせ用）。
     pub fn score_each_alone(&mut self, req: &Request) -> Result<Vec<f32>, String> {
         let seqs = self.sequences(req);
@@ -453,6 +612,10 @@ impl Scorer {
         });
         Ok(out)
     }
+}
+
+fn trie_piece(model: &LlamaModel, token: LlamaToken) -> Vec<u8> {
+    model.vocab().token_to_piece(token, false, None)
 }
 
 struct TrieNode {

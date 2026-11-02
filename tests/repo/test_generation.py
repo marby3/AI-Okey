@@ -1,6 +1,6 @@
 """Issue #40 の受け入れテスト（基準 2〜4）：段2で文を生成する方式の比較、速さ、判断の記録。
 
-結果は docs/eval/generation.md に記録する（数字は python -m aiokey analyze --generate で出す）。
+結果は docs/eval/generation.md に記録する（数字は python -m aiokey compare で出す）。
 基準 1 は python/tests/test_generate.py で確かめる。
 """
 
