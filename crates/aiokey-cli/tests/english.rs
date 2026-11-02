@@ -108,3 +108,12 @@ fn slash_marks_english_and_a_lone_slash_is_a_middle_dot() {
     let s = surfaces("/");
     assert_eq!(s.first().map(String::as_str), Some("・"), "{s:?}");
 }
+
+// #47 基準 1：文の途中の `/` で「・」を打てる。順位は記録のために出す（cargo test -- --nocapture）
+#[test]
+fn middle_dot_between_words_is_a_candidate() {
+    let s = surfaces("zyq/F/knd");
+    let rank = s.iter().position(|x| x == "ジョン・F・ケネディ");
+    eprintln!("zyq/F/knd: ジョン・F・ケネディ は {:?} 位（0 始まり）、1 位は {:?}", rank, s.first());
+    assert!(rank.is_some(), "{s:?}");
+}
