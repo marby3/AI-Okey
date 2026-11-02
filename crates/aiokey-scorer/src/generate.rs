@@ -7,7 +7,7 @@
 //! ビームサーチする（学習済みの段2は候補を並べ替える学習しかしておらず、log P だけでは辞書にないかなを
 //! 並べた文が上に来るため）。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use llama_cpp_2::token::LlamaToken;
 
@@ -169,20 +169,26 @@ impl VocabTrie {
         trie
     }
 
-    /// 状態 `state` から出せるトークンと、出したあとの状態。
-    fn allowed(&self, constraint: &Constraint, state: &[Item]) -> Vec<(LlamaToken, Vec<Item>)> {
+    /// 状態 `state` から出せるトークンと、その表記、出したあとの状態。
+    fn allowed(
+        &self,
+        constraint: &Constraint,
+        state: &[Item],
+    ) -> Vec<(LlamaToken, Vec<u8>, Vec<Item>)> {
         let mut out = Vec::new();
-        let mut stack = vec![(0usize, state.to_vec())];
-        while let Some((node, state)) = stack.pop() {
+        let mut stack = vec![(0usize, Vec::new(), state.to_vec())];
+        while let Some((node, piece, state)) = stack.pop() {
             for &(byte, child) in &self.children[node] {
                 let next = constraint.step(&state, byte);
                 if next.is_empty() {
                     continue;
                 }
+                let mut piece = piece.clone();
+                piece.push(byte);
                 for &t in &self.tokens[child] {
-                    out.push((t, next.clone()));
+                    out.push((t, piece.clone(), next.clone()));
                 }
-                stack.push((child, next));
+                stack.push((child, piece, next));
             }
         }
         out
@@ -225,12 +231,15 @@ pub(crate) struct Beam {
 pub(crate) struct Expansion {
     pub parent: usize,
     pub token: LlamaToken,
+    /// 伸ばしたあとの表記
+    pub bytes: Vec<u8>,
     pub state: Vec<Item>,
     pub log_p: f32,
     pub score: f32,
 }
 
 /// 生成の 1 段：各ビームから出せるトークンを集め、終わったもの（EOS）と、伸ばす上位 `beam` 本に分ける。
+/// 同じ表記になる伸ばし方（トークンの切り方の違い）は、並べる値の高いほうだけを残してから絞る。
 pub(crate) fn expand(
     beams: &[Beam],
     trie: &VocabTrie,
@@ -246,11 +255,14 @@ pub(crate) fn expand(
             let log_p = b.log_p + b.row[eos.0 as usize];
             finished.push((b.bytes.clone(), log_p - weight * cost as f32 / COST_PER_NAT));
         }
-        for (token, state) in trie.allowed(constraint, &b.state) {
+        for (token, piece, state) in trie.allowed(constraint, &b.state) {
             let log_p = b.log_p + b.row[token.0 as usize];
+            let mut bytes = b.bytes.clone();
+            bytes.extend(piece);
             all.push(Expansion {
                 parent: i,
                 token,
+                bytes,
                 score: log_p - penalty(&state, weight),
                 state,
                 log_p,
@@ -258,11 +270,13 @@ pub(crate) fn expand(
         }
     }
     all.sort_by(|a, b| b.score.total_cmp(&a.score));
+    let mut seen = HashSet::new();
+    all.retain(|x| seen.insert(x.bytes.clone()));
     all.truncate(beam);
     all
 }
 
-/// 終わった候補を、表記の重複を除いて log P の高い順に `n` 件まで並べる。
+/// 終わった候補を、表記の重複を除いて並べる値の高い順に `n` 件まで並べる。
 pub(crate) fn finish(mut finished: Vec<(Vec<u8>, f32)>, n: usize) -> Vec<(String, f32)> {
     finished.sort_by(|a, b| b.1.total_cmp(&a.1));
     let mut out: Vec<(String, f32)> = Vec::new();

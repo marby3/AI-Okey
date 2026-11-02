@@ -494,14 +494,14 @@ impl Scorer {
             row,
         }];
         let mut finished = Vec::new();
-        // 1 トークンは 1 バイト以上を当てはめるので、表記のバイト数で抑えられる。念のための上限
+        // 終わらないビームを止めるための目安（入力 1 バイトあたり 4 トークン。上限に達したら、それまでに終わった候補を返す）
         let max_steps = 4 * input.len() + 16;
         let mut bank = 1;
         for _ in 0..max_steps {
             if !worth_continuing(&beams, &finished, beam) {
                 break;
             }
-            let mut expansions = expand(
+            let expansions = expand(
                 &beams,
                 trie,
                 constraint,
@@ -510,13 +510,6 @@ impl Scorer {
                 options.cost_weight,
                 &mut finished,
             );
-            // 同じ表記になる伸ばし方（トークンの切り方の違い）は、log P の高いほうだけ残す
-            let mut seen = std::collections::HashSet::new();
-            expansions.retain(|x| {
-                let mut bytes = beams[x.parent].bytes.clone();
-                bytes.extend(trie_piece(self.inner.borrow_owner(), x.token));
-                seen.insert(bytes)
-            });
             if expansions.is_empty() {
                 break;
             }
@@ -553,12 +546,10 @@ impl Scorer {
                     let parent = &beams[x.parent];
                     let mut tokens = parent.tokens.clone();
                     tokens.push(x.token);
-                    let mut bytes = parent.bytes.clone();
-                    bytes.extend(trie_piece(self.inner.borrow_owner(), x.token));
                     Beam {
                         seq: base + j as i32,
                         tokens,
-                        bytes,
+                        bytes: x.bytes,
                         state: x.state,
                         log_p: x.log_p,
                         score: x.score,
@@ -612,10 +603,6 @@ impl Scorer {
         });
         Ok(out)
     }
-}
-
-fn trie_piece(model: &LlamaModel, token: LlamaToken) -> Vec<u8> {
-    model.vocab().token_to_piece(token, false, None)
 }
 
 struct TrieNode {

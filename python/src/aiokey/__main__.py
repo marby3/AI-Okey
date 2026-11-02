@@ -65,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     co.add_argument("--limit", type=int, help="先頭からこの数の例だけで比べる（絞ったあとに数える）")
     co.add_argument("--methods", default=",".join(["current", "generate", "combined"]))
     co.add_argument("--rows", type=Path, help="例ごとの結果（JSONL）を書く先")
+    co.add_argument("--errors", action="store_true", help="生成が外れた理由も数える（generate を含むとき）")
     args = parser.parse_args(argv)
 
     if args.command == "sentences":
@@ -138,7 +139,7 @@ def _compare(args) -> int:
     import itertools
 
     from aiokey import Converter, Scorer
-    from aiokey.analyze import Analyzer, Generator, compare
+    from aiokey.analyze import Analyzer, Generator, compare, generation_errors
 
     # 生成のビームは系列を 2 × beam 使う。合わせた方式は段1の上位と生成の候補をまとめて採点する
     scorer = Scorer(str(args.scorer), "aiokey", args.threads, max(64, 2 * args.beam), _temperature(args))
@@ -154,8 +155,10 @@ def _compare(args) -> int:
         with open(args.rows, "w", encoding="utf-8") as f:
             for row in rows:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
-    print(json.dumps({"beam": args.beam, "cost_weight": args.cost_weight, "methods": report},
-                     ensure_ascii=False, indent=2))
+    out = {"beam": args.beam, "cost_weight": args.cost_weight, "methods": report}
+    if args.errors:
+        out["generate_errors"] = generation_errors(rows, generator)
+    print(json.dumps(out, ensure_ascii=False, indent=2))
     return 0
 
 

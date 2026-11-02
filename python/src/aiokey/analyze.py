@@ -292,10 +292,12 @@ class Generator:
             return self.analyzer.rank(e)["surfaces"]
         if method == "generate":
             return self.generate(e)
-        return self.combined(e)
+        if method == "combined":
+            return self.combined(e)
+        raise ValueError(f"unknown method: {method}")
 
 
-def percentile(values: list[float], q: float) -> float:
+def percentile(values: list[float], q: int) -> float:
     return statistics.quantiles(values, n=100, method="inclusive")[q - 1] if len(values) > 1 else values[0]
 
 
@@ -335,3 +337,54 @@ def compare(examples: Iterable[dict], generator: Generator, methods: Iterable[st
         for method in methods
     }
     return report, rows
+
+
+COST_PER_NAT = 500  # 段1のコストを log P（自然対数）に直すときの割る数（generate.rs と同じ）
+
+
+def path_cost(converter, input_: str, surface: str) -> int | None:
+    """表記を段1のラティスの語の並びでつくるときの、語のコストの和の最小。つくれなければ None。"""
+    n, words = converter.lattice_words(input_)
+    by_start: dict[int, list] = {}
+    for start, end, s, cost in words:
+        by_start.setdefault(start, []).append((end, s, cost))
+    best: dict[int, dict[int, int]] = {0: {0: 0}}
+    for pos in range(n):
+        for k, cost in best.get(pos, {}).items():
+            for end, s, c in by_start.get(pos, ()):
+                if end > pos and surface.startswith(s, k):
+                    nxt = best.setdefault(end, {})
+                    nxt[k + len(s)] = min(nxt.get(k + len(s), cost + c), cost + c)
+    return best.get(n, {}).get(len(surface))
+
+
+def generation_errors(rows: Iterable[dict], generator: Generator) -> Counter:
+    """生成が外れた理由を数える。並べる値はビームサーチと同じ（段2の log P − 重み × 段1のコスト ÷ 500）。
+
+    - ok：生成の 1 位が正解
+    - unreachable：正解がラティスの語の並びでつくれない（制約で出せない）
+    - search_error：正解の並べる値のほうが生成の 1 位より高い（ビームサーチで落ちた）
+    - model_error：生成の 1 位の並べる値のほうが高い（並べる値が正解を選ばない）
+    """
+    a = generator.analyzer
+    out: Counter = Counter()
+    for r in rows:
+        g = r.get("generate")
+        if g is None:
+            continue
+        if g["rank"] == 1:
+            out["ok"] += 1
+            continue
+        target_cost = path_cost(a.converter, r["input"], r["target"])
+        if target_cost is None:
+            out["unreachable"] += 1
+            continue
+        if not g["top"]:
+            out["search_error"] += 1
+            continue
+        top = g["top"][0]
+        log_p = a.scorer.log_probs(r.get("context") or "", r["input"], [(r["target"], ""), (top, "")])
+        costs = [target_cost, path_cost(a.converter, r["input"], top) or 0]
+        score = [lp - generator.cost_weight * c / COST_PER_NAT for lp, c in zip(log_p, costs)]
+        out["search_error" if score[0] > score[1] else "model_error"] += 1
+    return out

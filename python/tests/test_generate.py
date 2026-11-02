@@ -28,7 +28,7 @@ def test_generation_finds_an_answer_that_is_not_in_the_stage1_candidates(dict_pa
     # 基準 1：ジョン・F・ケネディは段1では 32 位以内に出ない（#47）
     if not STAGE2.is_file():
         pytest.skip(f"{STAGE2} がない（学習済みの段2は Release の配布物）")
-    temperature = json.loads((STAGE2.parent / "aiokey-stage2.json").read_text())["temperature"]
+    temperature = json.loads((STAGE2.parent / "aiokey-stage2.json").read_text(encoding="utf-8"))["temperature"]
     converter = aiokey.Converter(str(dict_path))
     scorer = aiokey.Scorer(str(STAGE2), "aiokey", 2, 64, temperature)
     target, input_ = "ジョン・F・ケネディ", "zyq/F/knd"
