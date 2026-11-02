@@ -46,7 +46,8 @@ def main(argv: list[str] | None = None) -> int:
     an.add_argument("--examples", type=Path, required=True, help="sentences が作った JSONL")
     an.add_argument("--dict", type=Path, default=Path("build/aiokey.dic"))
     an.add_argument("--scorer", type=Path, help="段2の GGUF。渡すとサーバーと同じく迷うときだけ段2で並べ替える")
-    an.add_argument("--temperature", type=float, default=1.0, help="段2の温度（aiokey-stage2.json の temperature）")
+    an.add_argument("--temperature", type=float,
+                    help="段2の温度。省くと GGUF と同じフォルダの aiokey-stage2.json の temperature")
     an.add_argument("--threads", type=int, default=2)
     an.add_argument("--rows", type=Path, help="例ごとの結果（JSONL）を書く先")
     args = parser.parse_args(argv)
@@ -93,10 +94,15 @@ def _sentences(args) -> int:
 
 def _analyze(args) -> int:
     from aiokey import Converter, Scorer
-    from aiokey.analyze import Analyzer, analyze
+    from aiokey.analyze import MAX_CANDIDATES, Analyzer, analyze
 
-    # サーバーの既定と同じ（段2に渡す候補は 8 件）
-    scorer = Scorer(str(args.scorer), "aiokey", args.threads, 8, args.temperature) if args.scorer else None
+    scorer = None
+    if args.scorer:
+        temperature = args.temperature
+        if temperature is None:
+            with open(args.scorer.parent / "aiokey-stage2.json", encoding="utf-8") as f:
+                temperature = json.load(f)["temperature"]
+        scorer = Scorer(str(args.scorer), "aiokey", args.threads, MAX_CANDIDATES, temperature)
     with open(args.examples, encoding="utf-8") as f:
         examples = [json.loads(line) for line in f if line.strip()]
     report, rows = analyze(examples, Analyzer(Converter(str(args.dict)), scorer))

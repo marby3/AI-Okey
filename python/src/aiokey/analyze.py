@@ -30,10 +30,15 @@ from aiokey import reading as rd
 from aiokey.datagen import VOWEL_PER_KANA
 
 PAGE = 9
+# サーバーの既定（crates/aiokey-server/src/config.rs）と同じ
+K = 32
+SKIP_COST_GAP = 500
+MAX_CANDIDATES = 8
 SENTENCE_END = re.compile(r"(?<=。)")
 PHRASE_END = re.compile(r"(?<=[、。])")
 KATAKANA_WORD = re.compile(r"[ァ-ヶー・]{2,}")
 DIGIT = re.compile(r"[0-9０-９]")
+SYMBOL = re.compile(r"[^\w・ー]")
 # 単独の入力で候補に出るかを見るときの K
 WORD_K = 200
 FEATURES = ("辞書にない語", "固有名詞・カタカナ語", "数字", "英字")
@@ -120,7 +125,8 @@ def char_accuracy(output: str, target: str) -> float:
 
 
 class Analyzer:
-    def __init__(self, converter, scorer=None, k: int = 32, skip_cost_gap: int = 500, max_candidates: int = 8):
+    def __init__(self, converter, scorer=None, k: int = K, skip_cost_gap: int = SKIP_COST_GAP,
+                 max_candidates: int = MAX_CANDIDATES):
         self.converter = converter
         self.scorer = scorer
         self.k = k
@@ -129,6 +135,7 @@ class Analyzer:
         self._word_cache: dict[tuple[str, str], bool] = {}
         from sudachipy import Dictionary, SplitMode
 
+        # reading.Annotator と同じ辞書と分割単位
         self._tokenizer = Dictionary(dict="core").tokenizer(mode=SplitMode.C)
 
     def rank(self, e: dict) -> dict:
@@ -159,8 +166,10 @@ class Analyzer:
         """入力の特徴（誤りの原因の候補）。すべての例で数え、特徴のある例とない例で誤りの割合を比べる。"""
         tokens = e.get("tokens", [])
         out = []
-        # 内容語（表記と読みが違う語）だけを見る。ひらがなだけの語（助詞など）と、数字・記号は除く
-        words = [t for t in tokens if not t["english"] and t["surface"] != t["reading"]]
+        # 内容語（表記と読みが違う語）だけを見る。ひらがなだけの語（助詞など）と、数字・記号を含む語
+        # （Sudachi は「6600万」「%」にも読みを付ける）は除く。数字は「数字」で別に数える
+        words = [t for t in tokens if not t["english"] and t["surface"] != t["reading"]
+                 and not DIGIT.search(t["surface"]) and not SYMBOL.search(t["surface"])]
         if any(not self.word_found(t) for t in words):
             out.append("辞書にない語")
         proper = any(m.part_of_speech()[1] == "固有名詞" for m in self._tokenizer.tokenize(e["target"]))

@@ -49,7 +49,7 @@ def test_fetch_atc_rejects_a_file_that_does_not_match_the_pinned_hash(tmp_path):
     (tmp_path / "atc26.txt").write_text("tampered\n", encoding="utf-8")
     result = subprocess.run(["bash", str(SCRIPT), "--verify-only", "--dir", str(tmp_path)],
                             capture_output=True, text=True)
-    assert result.returncode != 0
+    assert result.returncode != 0 and "FAILED" in result.stdout + result.stderr
 
 
 def test_measures_are_compared_on_the_test_set_and_the_real_typing_sets():

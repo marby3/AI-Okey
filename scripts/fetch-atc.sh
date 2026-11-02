@@ -33,6 +33,14 @@ mkdir -p "$dir"
 if [ "$verify_only" -eq 0 ]; then
   echo "fetch atc26.txt"
   curl -fsSL --retry 3 -o "$dir/atc26.txt.part" "$URL"
+  # 検証してから置く（一致しなければ使わずに消す）
+  expected="$(cut -d' ' -f1 "$sums")"
+  actual="$(sha256sum "$dir/atc26.txt.part" | cut -d' ' -f1)"
+  if [ "$actual" != "$expected" ]; then
+    rm -f "$dir/atc26.txt.part"
+    echo "atc26.txt: FAILED (sha256 $actual != $expected)" >&2
+    exit 1
+  fi
   mv "$dir/atc26.txt.part" "$dir/atc26.txt"
 fi
 
