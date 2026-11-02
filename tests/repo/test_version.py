@@ -6,6 +6,7 @@
 
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -18,10 +19,11 @@ def parse(version):
 
 
 def test_workspace_version_is_not_older_than_the_newest_tag():
-    tags = subprocess.run(["git", "tag", "--list", "v*"], cwd=ROOT, capture_output=True, text=True).stdout
+    tags = subprocess.run(["git", "tag", "--list", "v*"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
     versions = [parse(m[1]) for m in re.finditer(r"^v(\d+\.\d+\.\d+)$", tags, re.M)]
     if not versions:
         pytest.skip("タグがない")
-    cargo = (ROOT / "Cargo.toml").read_text(encoding="utf-8")
-    workspace = parse(re.search(r'^version = "(\d+\.\d+\.\d+)"', cargo, re.M)[1])
-    assert workspace >= max(versions), f"Cargo.toml {workspace} < tag {max(versions)}"
+    with open(ROOT / "Cargo.toml", "rb") as f:
+        version = tomllib.load(f)["workspace"]["package"]["version"]
+    newest = max(versions)
+    assert parse(version) >= newest, f"Cargo.toml {version} < tag v{'.'.join(map(str, newest))}"
