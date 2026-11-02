@@ -5,8 +5,7 @@ NG があれば直して `rc` を出し直し、すべて OK になったら v1.
 
 用意するもの：Windows 10／11（x64、AVX2 のある CPU。2013 年ごろ以降の Intel／AMD）、Release の
 `aiokey-v1.0.0-rc.N-windows.zip` と `aiokey-setup-v1.0.0-rc.N.exe`。
-インストーラーは、AI-O Key を使うユーザー自身で実行する（管理者の確認で別のアカウントを入れると、そのアカウントの
-`%APPDATA%` に入り、自動起動もそのアカウントに登録される）。
+インストーラーは管理者の権限で `C:\Program Files\AI-O Key` に入れる。自動起動はすべてのユーザーに登録される。
 
 ## 1. 登録スクリプト（zip）
 
@@ -22,15 +21,20 @@ NG があれば直して `rc` を出し直し、すべて OK になったら v1.
 
 ## 2. インストーラー
 
-1. `aiokey-setup-v1.0.0-rc.N.exe` を実行する（入れる先は `%APPDATA%\aiokey`）。
-2. タスク マネージャーで確かめてから、再起動してサインインし直す（ログオン時の自動起動を確かめるため）。
+1. `aiokey-setup-v1.0.0-rc.N.exe` を実行する（入れる先は `C:\Program Files\AI-O Key`。管理者の確認が出る）。
+   rc.3 までを入れた PC では、上書きで入れる。
+2. インストールの直後にタスク マネージャーで確かめてから、再起動してサインインし直す（ログオン時の自動起動を確かめるため）。
 3. 「キーボードの追加」で AI-O Key を足し、Windows キー＋スペースで AI-O Key に切り替える。
+4. 「Windows セキュリティ → ウイルスと脅威の防止 → 保護の履歴」を開く。
 
 | 項目 | 期待すること | 結果 |
 |---|---|---|
-| インストール | エラーなく終わる。`%APPDATA%\aiokey` に aiokey-server.exe、aiokey-ui.exe、aiokey-launcher.exe、aiokey-cli.exe、aiokey.dic、aiokey-stage2-q8_0.gguf、aiokey-stage2.json がある | |
-| 自動起動 | インストールの直後と、再起動してサインインしたあとの両方で、タスク マネージャーの「詳細」に aiokey-server と aiokey-ui がある（ないときは末尾の「動かないとき」） | |
-| IME からの起動 | タスク マネージャーで aiokey-launcher、aiokey-server、aiokey-ui を終了してから、メモ帳で AI-O Key に切り替えて打つと、数秒のうちにかな入力に戻る（それまでは英字がそのまま入ってよい） | |
+| インストール | エラーなく終わる。`C:\Program Files\AI-O Key` に aiokey.dll、aiokey32.dll、aiokey-server.exe、aiokey-ui.exe、aiokey-launcher.exe、aiokey-cli.exe、aiokey.dic、aiokey-stage2-q8_0.gguf、aiokey-stage2.json がある | |
+| rc.3 からの上書き | `%APPDATA%\aiokey` に AI-O Key の exe と dll が残っていない（DLL は再起動のあとに消える。settings.json は残ってよい） | |
+| 自動起動（インストールの直後） | サインインし直さなくても、タスク マネージャーの「詳細」に aiokey-launcher、aiokey-server、aiokey-ui がある（ないときは末尾の「動かないとき」） | |
+| 自動起動（再起動のあと） | 再起動してサインインしたあとも、同じ 3 つがある | |
+| Defender | 保護の履歴に AI-O Key のファイル（aiokey.dll など）の検知がない。検知が出たら、「詳細情報」に出る検知名を書く | |
+| サーバーが止まっているとき | タスク マネージャーで aiokey-launcher、aiokey-server、aiokey-ui を終了すると、英字がそのまま入る。`C:\Program Files\AI-O Key\aiokey-launcher.exe` を起動すると、数秒のうちにかな入力に戻る | |
 
 ## 3. 打って確かめる（メモ帳）
 
@@ -42,6 +46,8 @@ NG があれば直して `rc` を出し直し、すべて OK になったら v1.
 | 短い入力 | `kik` と打って Space | 「機器」「危機」「開花」などが出る | |
 | 英単語 | `keyboard` と打つ | 候補に「keyboard」がある | |
 | 英語指定 | `/hqt` と打つ | 「hqt」がそのまま候補になる | |
+| 中黒 | `/` だけ打って Enter | 「・」が入る | |
+| 長音 | `g-dr` と打つ | 長音が「ー」として変換に効く（`-` が全角の「ー」のまま残らない） | |
 | 区切り | `htst`、Shift+Space、`hqtun` と打つ | 区切りの空白が入り、「果たして」と「本当に」に分けて変換される | |
 | 変換キー（段2） | 打ってすぐ Space | 段2で並べ替えた 1 位が出る | |
 | 打つのを止めたとき（段2） | 打ってから手を止める | 表示が段2の 1 位に変わることがある。確信が低いときは候補ウィンドウが開く | |
@@ -76,7 +82,7 @@ Get-Process aiokey-server, aiokey-ui | Select-Object Name, @{n='WorkingSetMB'; e
 **段2の時間（AVX2）**：温度の 3.44 は、学習済みモデルの校正値（`aiokey-stage2.json` の `temperature`）。
 
 ```powershell
-$d = "$env:APPDATA\aiokey"
+$d = "C:\Program Files\AI-O Key"
 & "$d\aiokey-cli.exe" bench --dict "$d\aiokey.dic" --stage2 "$d\aiokey-stage2-q8_0.gguf" --temperature 3.44 --iterations 20
 ```
 
@@ -95,15 +101,15 @@ $d = "$env:APPDATA\aiokey"
 
 ## 動かないとき
 
-ランチャーは、ログオン時にユーザーの Run キー（スタートアップ）から起動する。起動していなくても、AI-O Key に
-切り替えて打てば、IME がランチャーを起動する（つながるまでの数秒は英字がそのまま入る）。
+ランチャーは、ログオン時にすべてのユーザーの Run キー（スタートアップ）から起動する。IME はランチャーを起動しない
+（サーバーにつながらない間は、英字がそのまま入る）。
 ランチャーは、サーバーと候補ウィンドウの出力と終わり方を `%LOCALAPPDATA%\aiokey\logs\launcher.log` に残す。
 タスク マネージャーの「詳細」に aiokey-server と aiokey-ui がないときは、次の結果を Issue に貼る。
 
 ```powershell
 Get-Item "$env:LOCALAPPDATA\aiokey\logs\launcher.log" | Format-List LastWriteTime
 Get-Content "$env:LOCALAPPDATA\aiokey\logs\launcher.log"
-Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "AI-O Key"
+Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "AI-O Key"
 ```
 
 launcher.log の時刻がサインインした時刻より前なら、ランチャーが起動していない。

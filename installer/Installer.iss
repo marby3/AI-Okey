@@ -25,7 +25,10 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={userappdata}\aiokey
+; rc.3 までは %APPDATA%\aiokey に入れていたが、ユーザーが書き込める場所の未署名の DLL を Defender が
+; トロイの木馬として検疫した。IME と同じく Program Files に入れる（前回のフォルダは引き継がない）
+DefaultDirName={autopf}\AI-O Key
+UsePreviousAppDir=no
 ; "ArchitecturesAllowed=x64compatible" specifies that Setup cannot run
 ; on anything but x64 and Windows 11 on Arm.
 ArchitecturesAllowed=x64compatible
@@ -64,13 +67,11 @@ Source: "{#SourceDir}/MOZC-DICTIONARY-README.txt"; DestDir: "{app}"; Flags: igno
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Registry]
-; ログオン時にランチャーを起動する（ユーザーの Run キー。管理者の権限は要らない）。
-; 自動起動に失敗していても、IME が最初のキー入力でランチャーを起動する
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "AI-O Key"; ValueData: """{app}\aiokey-launcher.exe"""; Flags: uninsdeletevalue
-
-[InstallDelete]
-; rc.1 まではタスクから launch.vbs 経由でランチャーを起動していた
-Type: files; Name: "{app}\launch.vbs"
+; ログオン時にランチャーを起動する（すべてのユーザーの Run キー。起動に管理者の権限は要らない）。
+; 管理者でインストールすると HKCU は昇格したアカウントのものになるので、HKLM に置く
+Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "AI-O Key"; ValueData: """{app}\aiokey-launcher.exe"""; Flags: uninsdeletevalue
+; rc.3 まではユーザーの Run キーに登録していた
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "AI-O Key"; Flags: deletevalue
 
 [Run]
 ; rc.2 まではタスク スケジューラで起動していた（実機で登録されなかった）。残っていれば消す
@@ -78,11 +79,11 @@ Filename: "schtasks"; Parameters: "/Delete /TN ""AI-O Key Startup"" /F"; Flags: 
 ; インストールの直後に、管理者ではないユーザーとして起動する（サインインし直さなくても使える）
 Filename: "{app}\aiokey-launcher.exe"; Flags: nowait runasoriginaluser
 Filename: "icacls"; \
-  Parameters: "{app}\aiokey.dll /grant ""*S-1-15-2-1:(RX)"""; \
+  Parameters: """{app}\aiokey.dll"" /grant ""*S-1-15-2-1:(RX)"""; \
   Description: "Grant Permission"; \
   Flags: runhidden postinstall runascurrentuser
 Filename: "icacls"; \
-  Parameters: "{app}\aiokey32.dll /grant ""*S-1-15-2-1:(RX)"""; \
+  Parameters: """{app}\aiokey32.dll"" /grant ""*S-1-15-2-1:(RX)"""; \
   Description: "Grant Permission"; \
   Flags: runhidden postinstall runascurrentuser
 
@@ -106,10 +107,58 @@ end;
 // 入れ直し・更新のときに、動いているファイルを置き換えられるよう、先に止める（アプリに読み込まれている
 // aiokey.dll は止められないので、restartreplace で再起動のときに置き換える）
 // 入れる先のフォルダから動いているランチャー、サーバー、候補ウィンドウだけを止める（ほかの場所の同名のものは止めない）
+// Param を省くと、入れる先のフォルダ
 function StopCommand(Param: String): String;
+var
+  Dir: String;
 begin
+  Dir := Param;
+  if Dir = '' then
+    Dir := ExpandConstant('{app}');
   Result := 'Get-Process aiokey-launcher, aiokey-server, aiokey-ui -ErrorAction SilentlyContinue | ' +
-    'Where-Object { $_.Path -like ''' + ExpandConstant('{app}') + '\*'' } | Stop-Process -Force';
+    'Where-Object { $_.Path -like ''' + Dir + '\*'' } | Stop-Process -Force';
+end;
+
+// rc.3 まで（%APPDATA%\aiokey）に入れたファイル。設定（settings.json）は残す
+function OldInstallDir(): String;
+begin
+  Result := ExpandConstant('{userappdata}\aiokey');
+end;
+
+// アプリに読み込まれている DLL は消せないので、再起動のときに消す
+procedure DeleteOldFile(Name: String);
+var
+  Path: String;
+begin
+  Path := OldInstallDir() + '\' + Name;
+  if FileExists(Path) and not DeleteFile(Path) then
+    RestartReplace(Path, '');
+end;
+
+// DLL の登録（CLSID と TSF のプロファイル）は、同じ CLSID で新しい DLL を登録するときに上書きされる
+procedure RemoveOldInstall();
+var
+  Dummy: Integer;
+begin
+  if not FileExists(OldInstallDir() + '\aiokey-launcher.exe') then
+    Exit;
+  Exec('powershell.exe', '-NoProfile -Command "' + StopCommand(OldInstallDir()) + '"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
+  DeleteOldFile('aiokey.dll');
+  DeleteOldFile('aiokey32.dll');
+  DeleteOldFile('aiokey-launcher.exe');
+  DeleteOldFile('aiokey-server.exe');
+  DeleteOldFile('aiokey-ui.exe');
+  DeleteOldFile('aiokey-cli.exe');
+  DeleteOldFile('aiokey.dic');
+  DeleteOldFile('aiokey-stage2-q8_0.gguf');
+  DeleteOldFile('aiokey-stage2.json');
+  DeleteOldFile('LICENSE');
+  DeleteOldFile('NOTICE');
+  DeleteOldFile('MOZC-DICTIONARY-README.txt');
+  DeleteOldFile('launch.vbs');
+  DeleteOldFile('unins000.exe');
+  DeleteOldFile('unins000.dat');
+  RemoveDir(OldInstallDir());
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -117,6 +166,7 @@ var
   Dummy: Integer;
 begin
   Exec('powershell.exe', '-NoProfile -Command "' + StopCommand('') + '"', '', SW_HIDE, ewWaitUntilTerminated, Dummy);
+  RemoveOldInstall();
   Result := '';
 end;
 

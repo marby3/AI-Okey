@@ -8,7 +8,6 @@ use crate::{
 
 use super::{
     client_action::{ClientAction, SetSelectionType, SetTextType},
-    full_width::{to_fullwidth, to_halfwidth},
     input_mode::InputMode,
     ipc_service::Candidates,
     state::IMEState,
@@ -22,6 +21,7 @@ use windows::Win32::{
     },
 };
 
+use aiokey_keymap::full_width::{kana_mode_text, to_fullwidth, to_halfwidth};
 use anyhow::{Context, Result};
 
 // 状態の移り変わりは OS に依存しない aiokey-keymap にある
@@ -179,7 +179,7 @@ impl TextServiceFactory {
                     raw_input.push_str(&text);
 
                     let text = match mode {
-                        InputMode::Kana => to_fullwidth(text, false),
+                        InputMode::Kana => kana_mode_text(text),
                         InputMode::Latin => text.to_string(),
                     };
 
@@ -328,7 +328,7 @@ impl TextServiceFactory {
 
                     ipc_service.shrink_text(corresponding_count.clone())?;
                     let text = match mode {
-                        InputMode::Kana => to_fullwidth(text, false),
+                        InputMode::Kana => kana_mode_text(text),
                         InputMode::Latin => text.to_string(),
                     };
                     candidates = ipc_service.append_text(text)?;
