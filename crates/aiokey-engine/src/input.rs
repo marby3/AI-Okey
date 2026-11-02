@@ -11,6 +11,9 @@ pub const SEPARATOR: char = ' ';
 /// 英語指定の始まり（SKK の略語入力と同じ考え方）。
 pub const ENGLISH_PREFIX: char = '/';
 
+/// 長音。
+pub const LONG_VOWEL: char = '-';
+
 /// 入力の単位。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Unit {
@@ -93,7 +96,7 @@ pub fn parse(input: &str) -> InputLattice {
         let unit = match lower {
             'q' => Unit::Hatsuon,
             'x' => Unit::Sokuon,
-            '-' => Unit::Long,
+            LONG_VOWEL => Unit::Long,
             _ if CONSONANTS.contains(lower) => {
                 // 直後が母音なら、母音を指定した子音としての解釈も足す
                 if let Some(&next) = chars.get(i + 1) {

@@ -3,7 +3,7 @@
 
 use std::{collections::HashMap, sync::LazyLock};
 
-use aiokey_engine::input::{ENGLISH_PREFIX, SEPARATOR};
+use aiokey_engine::input::{ENGLISH_PREFIX, LONG_VOWEL, SEPARATOR};
 
 // in the engine, fullwidth alphabet will not be processed
 static HALF_FULL_TABLE: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
@@ -154,7 +154,7 @@ pub fn to_halfwidth(s: &str) -> String {
 pub fn kana_mode_text(s: &str) -> String {
     s.chars()
         .map(|c| match c {
-            ENGLISH_PREFIX | SEPARATOR | '-' => c.to_string(),
+            ENGLISH_PREFIX | SEPARATOR | LONG_VOWEL => c.to_string(),
             _ => to_fullwidth(&c.to_string(), false),
         })
         .collect()

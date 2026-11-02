@@ -115,6 +115,8 @@ begin
   Dir := Param;
   if Dir = '' then
     Dir := ExpandConstant('{app}');
+  // PowerShell の '…' の中では ' を 2 つ重ねる
+  StringChangeEx(Dir, '''', '''''', True);
   Result := 'Get-Process aiokey-launcher, aiokey-server, aiokey-ui -ErrorAction SilentlyContinue | ' +
     'Where-Object { $_.Path -like ''' + Dir + '\*'' } | Stop-Process -Force';
 end;
