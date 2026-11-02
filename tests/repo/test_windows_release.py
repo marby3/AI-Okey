@@ -41,27 +41,54 @@ def test_manual_test_explains_how_to_measure_memory_and_cpu():
         assert item in doc, item
 
 
-def test_launcher_starts_at_logon_from_the_users_run_key_and_right_after_install():
-    # rc.2：タスク スケジューラのタスクが実機で登録されていなかった。ランチャーは管理者でなくても動く
-    # （候補ウィンドウも UIAccess を得られた）ので、管理者の権限の要らないユーザーの Run キーで起動する
+def test_installs_into_program_files_and_cleans_up_the_appdata_install():
+    # rc.4（基準 6）：rc.3 では %APPDATA% の未署名の DLL を Defender がトロイの木馬として検疫した。
+    # Program Files に入れ（管理者の権限）、前回のフォルダは引き継がず、rc.3 までの版を残さない
     iss = (ROOT / "installer/Installer.iss").read_text(encoding="utf-8")
-    run_key = [l for l in iss.splitlines() if "CurrentVersion\\Run" in l]
-    assert run_key and "HKCU" in run_key[0] and "uninsdeletevalue" in run_key[0]
-    assert '"""{app}\\aiokey-launcher.exe"""' in run_key[0]
-    assert "/Create" not in iss and not (ROOT / "installer/AI-O Key Startup.xml").exists()
-    # インストールの直後に、管理者ではないユーザーとして起動する。rc.2 までのタスクは消す
+    assert "DefaultDirName={autopf}\\AI-O Key" in iss and "{userappdata}\\aiokey" not in iss.split("[Code]")[0]
+    assert "PrivilegesRequired=admin" in iss and "UsePreviousAppDir=no" in iss
+    hkcu = [l for l in iss.splitlines() if l.startswith("Root: HKCU") and "CurrentVersion\\Run" in l]
+    assert hkcu and "deletevalue" in hkcu[0] and '"AI-O Key"' in hkcu[0]
+    code = iss[iss.index("[Code]") :]
+    assert "{userappdata}\\aiokey" in code and "RestartReplace" in code
+
+
+def test_launcher_starts_at_logon_from_the_machine_run_key_and_right_after_install():
+    # rc.4（基準 7）：管理者でインストールすると HKCU は昇格したアカウントのものになるので、HKLM の Run キーにする
+    iss = (ROOT / "installer/Installer.iss").read_text(encoding="utf-8")
+    hklm = [l for l in iss.splitlines() if l.startswith("Root: HKLM") and "CurrentVersion\\Run" in l]
+    assert hklm and "uninsdeletevalue" in hklm[0]
+    assert '"""{app}\\aiokey-launcher.exe"""' in hklm[0]
     launch = [l for l in iss.splitlines() if l.startswith('Filename: "{app}\\aiokey-launcher.exe"')]
     assert launch and "runasoriginaluser" in launch[0] and "nowait" in launch[0]
-    assert '/Delete /TN ""AI-O Key Startup"" /F' in iss.split("[UninstallRun]")[0]
 
 
-def test_ime_starts_the_launcher_when_the_server_is_not_running():
-    # 自動起動に失敗していても、最初のキー入力でランチャーを起動する（アプリのジョブから切り離す）
-    state = (ROOT / "crates/aiokey-tsf/src/engine/state.rs").read_text(encoding="utf-8")
-    assert "aiokey-launcher.exe" in state and "CREATE_BREAKAWAY_FROM_JOB" in state
-    # 候補ウィンドウは、UIAccess を得られなくても動き続ける
+def test_ime_does_not_start_processes():
+    # rc.4（基準 8）：全アプリに読み込まれる DLL からプロセスを起動すると、マルウェアと同じ形になる
+    tsf = ROOT / "crates/aiokey-tsf/src"
+    for path in tsf.rglob("*.rs"):
+        text = path.read_text(encoding="utf-8")
+        for word in ["Command::new", "CreateProcess", "ShellExecute", "aiokey-launcher"]:
+            assert word not in text, f"{path}: {word}"
+    # 候補ウィンドウは、UIAccess を得られなくても動き続ける（署名がないうちは得られない）
     app = (ROOT / "crates/aiokey-ui/src/app.rs").read_text(encoding="utf-8")
     assert "prepare_uiaccess_token()?" not in app
+
+
+def test_tsf_sends_kana_mode_text_through_the_keymap():
+    # rc.4（基準 9）：かなモードの TSF は `/` を `・` に変えて送り、英語の指定が効かなかった。
+    # 変換の規則は aiokey-keymap の kana_mode_text（tests/kana_text.rs）で決める
+    composition = (ROOT / "crates/aiokey-tsf/src/engine/composition.rs").read_text(encoding="utf-8")
+    assert "InputMode::Kana => kana_mode_text(" in composition
+    assert "InputMode::Kana => to_fullwidth(" not in composition
+
+
+def test_manual_test_checks_program_files_defender_and_autostart_after_reboot():
+    # rc.4（基準 10）
+    doc = (ROOT / "docs/manual-test.md").read_text(encoding="utf-8")
+    for item in ["C:\\Program Files\\AI-O Key", "Defender", "検知名", "インストールの直後", "再起動"]:
+        assert item in doc, item
+    assert "IME からの起動" not in doc
 
 
 def test_tsf_activates_without_the_server_and_connects_on_the_first_key():
