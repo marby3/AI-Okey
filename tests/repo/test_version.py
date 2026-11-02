@@ -19,7 +19,9 @@ def parse(version):
 
 
 def test_workspace_version_is_not_older_than_the_newest_tag():
-    tags = subprocess.run(["git", "tag", "--list", "v*"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    # dev コンテナでは、リポジトリの所有者が違うので safe.directory を付ける
+    tags = subprocess.run(["git", "-c", f"safe.directory={ROOT}", "tag", "--list", "v*"],
+                          cwd=ROOT, capture_output=True, text=True, check=True).stdout
     versions = [parse(m[1]) for m in re.finditer(r"^v(\d+\.\d+\.\d+)$", tags, re.M)]
     if not versions:
         pytest.skip("タグがない")

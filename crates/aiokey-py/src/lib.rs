@@ -71,6 +71,22 @@ impl Converter {
         })
     }
 
+    /// 上位 `k` 件の候補の (表記, 読み, コスト) を、コストの低い順に返す（段2を飛ばすかの判定に使う。#39）。
+    #[pyo3(signature = (input, k = 32))]
+    fn convert_with_costs(
+        &self,
+        py: Python<'_>,
+        input: &str,
+        k: usize,
+    ) -> Vec<(String, String, i32)> {
+        py.allow_threads(|| {
+            convert(&self.dict, input, &Options { k })
+                .into_iter()
+                .map(|c| (c.surface, c.reading, c.cost))
+                .collect()
+        })
+    }
+
     /// 上位 `k` 件の候補の表記を、コストの低い順に返す。
     #[pyo3(signature = (input, k = 32))]
     fn convert(&self, py: Python<'_>, input: &str, k: usize) -> Vec<String> {

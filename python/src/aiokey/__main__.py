@@ -1,6 +1,8 @@
 """aiokey のコマンド。
 
     python -m aiokey eval --examples data/examples/test.jsonl --dict build/aiokey.dic [-k 32]
+    python -m aiokey sentences --text data/atc/atc26.txt --set atc --out target/eval/atc.jsonl
+    python -m aiokey analyze --examples target/eval/atc.jsonl --dict build/aiokey.dic [--scorer GGUF]
     python -m aiokey train --train data/examples/train.jsonl --dev data/examples/dev.jsonl --out build/stage2
 """
 
@@ -33,7 +35,26 @@ def main(argv: list[str] | None = None) -> int:
     ev.add_argument("--threads", type=int, default=2, help="段2の推論のスレッド数")
     ev.add_argument("--limit", type=int, help="先頭からこの数の例だけで測る")
     ev.add_argument("--max-target-chars", type=int, help="正解の文字数がこれ以下の例だけで測る")
+    se = sub.add_parser("sentences", help="ふつうの文から評価の例（文・句、子音だけ・母音あり）を作る")
+    src = se.add_mutually_exclusive_group(required=True)
+    src.add_argument("--text", type=Path, help="1 行に 1 つ以上の文を書いたテキスト")
+    src.add_argument("--examples", type=Path, help="aiokey.datagen の例（途中で切っていない文の正解を使う）")
+    se.add_argument("--set", required=True, help="例に付ける評価セットの名前")
+    se.add_argument("--limit", type=int, help="先頭からこの数の行（文）だけを使う")
+    se.add_argument("--out", type=Path, required=True)
+    an = sub.add_parser("analyze", help="誤りの内訳と、測り方ごとの数字を JSON で出す")
+    an.add_argument("--examples", type=Path, required=True, help="sentences が作った JSONL")
+    an.add_argument("--dict", type=Path, default=Path("build/aiokey.dic"))
+    an.add_argument("--scorer", type=Path, help="段2の GGUF。渡すとサーバーと同じく迷うときだけ段2で並べ替える")
+    an.add_argument("--temperature", type=float, default=1.0, help="段2の温度（aiokey-stage2.json の temperature）")
+    an.add_argument("--threads", type=int, default=2)
+    an.add_argument("--rows", type=Path, help="例ごとの結果（JSONL）を書く先")
     args = parser.parse_args(argv)
+
+    if args.command == "sentences":
+        return _sentences(args)
+    if args.command == "analyze":
+        return _analyze(args)
 
     import itertools
 
@@ -52,6 +73,37 @@ def main(argv: list[str] | None = None) -> int:
     except (ExamplesError, OSError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _sentences(args) -> int:
+    import itertools
+
+    from aiokey import reading as rd
+    from aiokey.analyze import make_examples, read_example_targets, read_texts
+
+    texts = read_texts(args.text) if args.text else read_example_targets(args.examples)
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    with open(args.out, "w", encoding="utf-8") as f:
+        for e in make_examples(itertools.islice(texts, args.limit), args.set, rd.Annotator()):
+            f.write(json.dumps(e, ensure_ascii=False) + "\n")
+    return 0
+
+
+def _analyze(args) -> int:
+    from aiokey import Converter, Scorer
+    from aiokey.analyze import Analyzer, analyze
+
+    # サーバーの既定と同じ（段2に渡す候補は 8 件）
+    scorer = Scorer(str(args.scorer), "aiokey", args.threads, 8, args.temperature) if args.scorer else None
+    with open(args.examples, encoding="utf-8") as f:
+        examples = [json.loads(line) for line in f if line.strip()]
+    report, rows = analyze(examples, Analyzer(Converter(str(args.dict)), scorer))
+    if args.rows:
+        with open(args.rows, "w", encoding="utf-8") as f:
+            for row in rows:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 
