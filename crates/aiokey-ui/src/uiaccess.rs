@@ -24,7 +24,7 @@ use windows::{
             SystemServices::PRIVILEGE_SET_ALL_NECESSARY,
             Threading::{
                 CreateProcessAsUserW, ExitProcess, GetCurrentProcess, GetStartupInfoW, OpenProcess,
-                OpenProcessToken, SetThreadToken, PROCESS_CREATION_FLAGS, PROCESS_INFORMATION,
+                OpenProcessToken, SetThreadToken, CREATE_NO_WINDOW, PROCESS_INFORMATION,
                 PROCESS_QUERY_LIMITED_INFORMATION, STARTUPINFOW,
             },
         },
@@ -220,7 +220,8 @@ pub fn prepare_uiaccess_token() -> Result<()> {
             None,
             None,
             false,
-            PROCESS_CREATION_FLAGS::default(),
+            // ランチャーはコンソールを持たないので、コンソールの窓を新しく出さないように起動する
+            CREATE_NO_WINDOW,
             None,
             None,
             &mut startup_info,

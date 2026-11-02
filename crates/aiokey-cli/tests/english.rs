@@ -99,3 +99,12 @@ fn malformed_frequency_tsv_is_rejected() {
         assert!(aiokey_dictbuild::read_english_tsv(&path).is_err(), "{name}");
     }
 }
+
+// #14 rc.4 基準 9：`/` のあとの英字はそのまま、`/` だけなら「・」
+#[test]
+fn slash_marks_english_and_a_lone_slash_is_a_middle_dot() {
+    let s = surfaces("/hqt");
+    assert_eq!(s.first().map(String::as_str), Some("hqt"), "{s:?}");
+    let s = surfaces("/");
+    assert_eq!(s.first().map(String::as_str), Some("・"), "{s:?}");
+}

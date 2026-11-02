@@ -7,7 +7,7 @@ description = "AI-O Key の変換を試す・測るための CLI"
 
 [dependencies]
 aiokey-engine = { path = "../aiokey-engine" }
+aiokey-scorer = { path = "../aiokey-scorer" }
 
 [dev-dependencies]
-aiokey-scorer = { path = "../aiokey-scorer" }
 aiokey-dictbuild = { path = "../aiokey-dictbuild" }

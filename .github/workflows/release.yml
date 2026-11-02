@@ -57,7 +57,20 @@ jobs:
           Copy-Item target/i686-pc-windows-msvc/release/aiokey.dll "$out/x86"
           Copy-Item LICENSE, NOTICE, aiokey.dic, aiokey-stage2-q8_0.gguf, aiokey-stage2.json $out
           Copy-Item data/mozc/README.txt "$out/MOZC-DICTIONARY-README.txt"
+          Copy-Item scripts/register.ps1 $out
           Compress-Archive -Path $out -DestinationPath "$out.zip"
+
+      # 配布物のフォルダから Inno Setup のインストーラーを作る（aiokey-setup-<タグ>.exe）
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          $out = "aiokey-$env:GITHUB_REF_NAME-windows"
+          $version = "$env:GITHUB_REF_NAME".TrimStart("v")
+          & $iscc "/DMyAppVersion=$version" "/DSourceDir=$PWD\$out" "/O$PWD" installer/Installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Item "aiokey-setup-$env:GITHUB_REF_NAME.exe"
 
       - name: Create GitHub Release
         shell: bash
@@ -67,7 +80,7 @@ jobs:
           # v1.0.0（実機で打てる最初の版）より前と、-rc などの付いた版はプレリリースにする
           prerelease=""
           case "$GITHUB_REF_NAME" in v0.*|*-*) prerelease="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" "aiokey-$GITHUB_REF_NAME-windows.zip" aiokey.dic \
+          gh release create "$GITHUB_REF_NAME" "aiokey-setup-$GITHUB_REF_NAME.exe" "aiokey-$GITHUB_REF_NAME-windows.zip" aiokey.dic \
             aiokey-stage2-q8_0.gguf aiokey-stage2.json \
             --title "AI-O Key $GITHUB_REF_NAME" --generate-notes $prerelease
 

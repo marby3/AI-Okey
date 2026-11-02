@@ -11,7 +11,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use crate::dict::Dictionary;
-use crate::input::{parse, InputLattice, Unit};
+use crate::input::{parse, InputLattice, Unit, ENGLISH_PREFIX};
 use crate::skeleton;
 
 /// 1 語がたどる入力の単位の上限。
@@ -305,6 +305,8 @@ fn add_unknown_nodes(dict: &Dictionary, lattice: &InputLattice, nodes: &mut Vec<
             Unit::Long => push("ー".to_string(), UNKNOWN_COST),
             Unit::Separator => push(" ".to_string(), 0),
             Unit::English(word) => push(word.clone(), UNKNOWN_COST),
+            // 英字の続かない `/` は中黒（かなモードの TSF は `/` をそのまま送る）
+            Unit::Other(ENGLISH_PREFIX) => push("・".to_string(), UNKNOWN_COST),
             Unit::Other(c) => push(c.to_string(), UNKNOWN_COST),
         }
     }

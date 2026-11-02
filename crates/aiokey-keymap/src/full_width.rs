@@ -3,6 +3,8 @@
 
 use std::{collections::HashMap, sync::LazyLock};
 
+use aiokey_engine::input::{ENGLISH_PREFIX, LONG_VOWEL, SEPARATOR};
+
 // in the engine, fullwidth alphabet will not be processed
 static HALF_FULL_TABLE: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     HashMap::from([
@@ -143,6 +145,17 @@ pub fn to_halfwidth(s: &str) -> String {
             } else {
                 c.to_string()
             }
+        })
+        .collect()
+}
+
+/// かなモードでサーバーに送る文字列。入力の規則に使う文字（英語の指定 `/`、長音 `-`、区切り）はそのまま送り、
+/// そのほかの記号は全角にする（`/` を `・` にすると、サーバーは英語の指定を読めない）
+pub fn kana_mode_text(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            ENGLISH_PREFIX | SEPARATOR | LONG_VOWEL => c.to_string(),
+            _ => to_fullwidth(&c.to_string(), false),
         })
         .collect()
 }

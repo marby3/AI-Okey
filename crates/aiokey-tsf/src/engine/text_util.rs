@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use super::full_width::to_halfwidth;
+use aiokey_keymap::full_width::to_halfwidth;
 
 #[allow(dead_code)]
 static KANA_MAP: LazyLock<HashMap<&'static str, (&'static str, &'static str)>> =

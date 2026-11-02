@@ -8,7 +8,6 @@ use crate::{
 
 use super::{
     client_action::{ClientAction, SetSelectionType, SetTextType},
-    full_width::{to_fullwidth, to_halfwidth},
     input_mode::InputMode,
     ipc_service::Candidates,
     state::IMEState,
@@ -22,6 +21,7 @@ use windows::Win32::{
     },
 };
 
+use aiokey_keymap::full_width::{kana_mode_text, to_fullwidth, to_halfwidth};
 use anyhow::{Context, Result};
 
 // 状態の移り変わりは OS に依存しない aiokey-keymap にある
@@ -111,6 +111,10 @@ impl TextServiceFactory {
         } else {
             return Ok(false);
         };
+        // 変換サーバーにつながらないときは、キーをそのままアプリに渡す
+        if IMEState::connect()?.is_none() {
+            return Ok(false);
+        }
 
         if let Some((actions, transition)) = self.process_key(context, wparam)? {
             self.handle_action(&actions, transition)?;
@@ -144,10 +148,9 @@ impl TextServiceFactory {
         let mut selection_index = composition.selection_index;
         let mut committed_context = composition.context.clone();
         let mut window_open = composition.window_open;
-        let mut ipc_service = IMEState::get()?
-            .ipc_service
-            .clone()
-            .context("ipc_service is None")?;
+        let Some(mut ipc_service) = IMEState::connect()? else {
+            anyhow::bail!("not connected to the server");
+        };
         let mut transition = transition;
 
         self.update_context(&preview)?;
@@ -176,7 +179,7 @@ impl TextServiceFactory {
                     raw_input.push_str(&text);
 
                     let text = match mode {
-                        InputMode::Kana => to_fullwidth(text, false),
+                        InputMode::Kana => kana_mode_text(text),
                         InputMode::Latin => text.to_string(),
                     };
 
@@ -325,7 +328,7 @@ impl TextServiceFactory {
 
                     ipc_service.shrink_text(corresponding_count.clone())?;
                     let text = match mode {
-                        InputMode::Kana => to_fullwidth(text, false),
+                        InputMode::Kana => kana_mode_text(text),
                         InputMode::Latin => text.to_string(),
                     };
                     candidates = ipc_service.append_text(text)?;

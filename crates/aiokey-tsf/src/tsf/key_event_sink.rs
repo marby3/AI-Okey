@@ -9,6 +9,7 @@ use windows::{
 use anyhow::Result;
 
 use super::factory::TextServiceFactory_Impl;
+use crate::engine::state::IMEState;
 
 // sink (aka event listener) for key events
 impl ITfKeyEventSink_Impl for TextServiceFactory_Impl {
@@ -22,7 +23,8 @@ impl ITfKeyEventSink_Impl for TextServiceFactory_Impl {
     ) -> Result<BOOL> {
         // this function checks if the key event will be handled by "OnKeyUp" function
         // so we need to return TRUE if we want to handle the key event
-        let result = self.process_key(pic, wparam)?.is_some();
+        // 変換サーバーにつながらないときは、OnKeyDown と同じくキーをそのままアプリに渡す
+        let result = IMEState::connect()?.is_some() && self.process_key(pic, wparam)?.is_some();
 
         Ok(result.into())
     }

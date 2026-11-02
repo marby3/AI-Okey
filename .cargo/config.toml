@@ -2,3 +2,8 @@
 # OS に依存しないクレートのテスト（Linux の dev コンテナと CI で使う）。
 # aiokey-tsf は Windows 専用。aiokey-ui は OS に依存しない lib（レイアウトなど）だけを Linux でテストする。aiokey-py は Python 拡張なので python/ の pytest で確かめる。
 test-portable = "test --workspace --exclude aiokey-tsf --exclude aiokey-py"
+
+# 配布する x64 の Windows 版は AVX2・FMA を使う（x86-64-v3）。llama-cpp-sys-2 はこれに合わせて段2の llama.cpp を
+# GGML_AVX2 などでビルドする。AVX2 のない古い CPU（2013 年ごろより前）では動かない（#14、ユーザーの了承済み）。
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-cpu=x86-64-v3"]

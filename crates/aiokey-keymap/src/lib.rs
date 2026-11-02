@@ -2,6 +2,8 @@
 //!
 //! TSF（Windows）はキーを [`key_from_vk`] で [`Key`] にし、[`transition`] が返す操作を実行するだけにする。
 
+pub mod full_width;
+
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum InputMode {
     /// 直接入力
