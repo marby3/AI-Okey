@@ -24,6 +24,8 @@ const MAX_PATHS_PER_START: usize = 128;
 const MAX_ENTRIES_PER_SPAN: usize = 40;
 /// 未知語（辞書にないかな 1 文字）のコスト。
 const UNKNOWN_COST: i32 = 9000;
+/// 文の途中の `/` を「・」と読むときのコスト（#47）。
+const MIDDLE_DOT_COST: i32 = UNKNOWN_COST / 2;
 /// A* で取り出す回数の上限。
 const MAX_POPS: usize = 50_000;
 /// A* で 1 回に広げる前の語の上限。
@@ -109,22 +111,12 @@ pub fn convert(dict: &Dictionary, input: &str, options: &Options) -> Vec<Candida
     candidates
 }
 
-/// 英語指定の印の `/` を取り除く。入力パーサーと同じく、英単語の外にある `/` だけが印で、
-/// 英単語の中（次の区切りまで）の `/` はそのまま残す。
+/// 英語指定の印の `/` を取り除く。英単語は次の `/` で終わるので（入力パーサーと同じ）、`/` はすべて印になる。
 fn without_english_prefixes(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut in_english = false;
-    for c in input.chars() {
-        if c == crate::input::ENGLISH_PREFIX && !in_english {
-            in_english = true;
-            continue;
-        }
-        if c == crate::input::SEPARATOR {
-            in_english = false;
-        }
-        out.push(c);
-    }
-    out
+    input
+        .chars()
+        .filter(|&c| c != crate::input::ENGLISH_PREFIX)
+        .collect()
 }
 
 /// 入力した文字列そのもの（英語指定の印の `/` は除く）を、必ず候補に入れる。
@@ -305,8 +297,8 @@ fn add_unknown_nodes(dict: &Dictionary, lattice: &InputLattice, nodes: &mut Vec<
             Unit::Long => push("ー".to_string(), UNKNOWN_COST),
             Unit::Separator => push(" ".to_string(), 0),
             Unit::English(word) => push(word.clone(), UNKNOWN_COST),
-            // 英字の続かない `/` は中黒（かなモードの TSF は `/` をそのまま送る）
-            Unit::Other(ENGLISH_PREFIX) => push("・".to_string(), UNKNOWN_COST),
+            // 英語の指定でない `/` は中黒（かなモードの TSF は `/` をそのまま送る）。コストの根拠は docs/eval/stage1.md（#47）
+            Unit::Other(ENGLISH_PREFIX) => push("・".to_string(), MIDDLE_DOT_COST),
             Unit::Other(c) => push(c.to_string(), UNKNOWN_COST),
         }
     }

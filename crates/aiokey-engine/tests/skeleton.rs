@@ -124,3 +124,22 @@ fn unexpected_characters_do_not_break_parsing() {
     // 空の入力は、長さ 0 の読み方が 1 つだけ
     assert_eq!(parse("").paths(), vec![Vec::<Unit>::new()]);
 }
+
+// #47 基準 1・2：文の途中の `/` は「・」（Other）と英語の指定の両方に読み、英語の語は次の `/` で終わる
+#[test]
+fn slash_in_the_middle_is_a_middle_dot_or_an_english_word_up_to_the_next_slash() {
+    let lattice = parse("zyq/F/knd");
+    let from_slash: Vec<_> = lattice.edges_from(3).collect();
+    assert!(
+        from_slash.iter().any(|e| e.end == 5 && e.unit == Unit::English("F".to_string())),
+        "{from_slash:?}"
+    );
+    assert!(
+        !from_slash.iter().any(|e| matches!(&e.unit, Unit::English(w) if w.contains('/'))),
+        "{from_slash:?}"
+    );
+    assert!(
+        from_slash.iter().any(|e| e.end == 4 && e.unit == Unit::Other('/')),
+        "{from_slash:?}"
+    );
+}
