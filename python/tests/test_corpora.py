@@ -126,7 +126,10 @@ def test_web_corpus_has_its_legal_basis_recorded_and_never_enters_the_repo_or_re
     shipped += [s.strip('"') for s in create.replace("\\\n", " ").split()[1:] if "$GITHUB_REF_NAME" not in s]
     for iss in (ROOT / "installer").glob("*.iss"):
         shipped += re.findall(r'^Source: "[^"]*?([^"/}]+)"', iss.read_text(encoding="utf-8", errors="ignore"), re.M)
-    assert shipped and {Path(s).name for s in shipped} <= allowed, sorted({Path(s).name for s in shipped} - allowed)
+    names = {Path(s).name for s in shipped}
+    # 読み取りが崩れて何も拾わないまま通らないよう、必ず入るものが拾えていることも確かめる
+    assert {"aiokey.dic", "aiokey-stage2-q8_0.gguf", "LICENSE", "NOTICE"} <= names, names
+    assert names <= allowed, sorted(names - allowed)
 
 
 def test_evaluation_sentences_are_removed_from_training_data(tmp_path, dict_path):

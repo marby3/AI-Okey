@@ -285,7 +285,9 @@ def _encode_all(
         # json.dumps の既定の区切りで書くので、正解が段1の候補にない例には必ずこの文字列がある
         added = '"gold_in_stage1": false'
         usable = [no for no, line in _lines(path) if not (only_in_stage1 and added in line)]
-        chosen = set(random.Random(seed).sample(usable, min(sample, len(usable))))
+        # 混ぜた並びの先頭から取るので、同じ seed なら小さい段階の例は大きい段階の例に含まれる（段階どうしを比べやすい）
+        random.Random(seed).shuffle(usable)
+        chosen = set(usable[:sample])
         examples = (_parse_example(path, no, line) for no, line in _lines(path) if no in chosen)
     out = []
     for e in examples:

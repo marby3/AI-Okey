@@ -12,7 +12,7 @@
     python -m aiokey.datagen --articles data/wiki/articles.jsonl data/corpora/articles/tatoeba.jsonl \
         --exclude target/eval/atc.jsonl --dict build/aiokey.dic --out data/examples --workers 8
 
-test を作らないとき（`--splits train,dev`）は、test の記事に出てくる文を train / dev でも使わない（例を作ったあとで除く）。
+test の記事に出てくる文は、train / dev では使わない（例を作ったあとで除く）。
 例は作りながら書き出す（数百万例でもメモリに持たない）。train と dev には学習に使わない項目（`tokens`、`skeleton`、
 `reading`）を書かず、`missing.jsonl` には漏れの記録に要る項目だけを書く。`--train-in-stage1-only` を付けると、train には
 段1の候補に正解がある例だけを書く（学習は既定でその例だけを使うので、結果は同じでファイルが 3 割ほどになる）。乱数は記事ごとに（入力の中の位置と記事 ID から）決めるので、
@@ -121,10 +121,11 @@ def generate(
             previous = sentence
             if example is None:
                 continue
-            if drop and normalize(sentence) in drop:
-                continue
-            if drop and example["context"] and normalize(example["context"]) in drop:
-                example["context"], example["has_context"] = "", False
+            if drop and split_of(article) != "test":
+                if normalize(sentence) in drop:
+                    continue
+                if example["context"] and normalize(example["context"]) in drop:
+                    example["context"], example["has_context"] = "", False
             candidates = converter.convert(example["input"], k) if converter else []
             example["gold_in_stage1"] = example["target"] in candidates
             if not example["gold_in_stage1"]:
@@ -305,8 +306,8 @@ def main(argv: list[str] | None = None) -> int:
 
     config = Config(args.vowel_rate, args.truncate_rate, args.context_rate, args.seed)
     exclude = frozenset(eval_sentences(args.exclude))
-    # test を作らないときは、test の記事の文を train / dev から除く（作るときは test の例に要るので除かない）
-    drop = test_sentences(args.articles) if "test" not in wanted else frozenset()
+    # test の記事の文は、train / dev では使わない（test の例はそのまま作る）
+    drop = test_sentences(args.articles)
     articles = (a for path in args.articles for a in _read_articles(path) if split_of(a[0]) in wanted)
 
     # 拡張モジュール（辞書）は、引数を確かめてから読み込む。並列のときも先にここで読んで確かめる

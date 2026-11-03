@@ -18,7 +18,7 @@
 | コーパス | 判断 | ライセンス | 中身と理由 |
 |---|---|---|---|
 | 日本語版 Wikipedia | 使う | CC BY-SA 4.0 | 今までの学習データ。ダンプ（jawiki-20261001）の先頭から 2 万記事に増やした。書き言葉で、固有名詞が多い |
-| Tatoeba | 使う | CC BY 2.0 FR（一部 CC0。日本語の多くは田中コーパス由来でパブリックドメイン） | 日常の会話の短い文。実際に打つ文に近い。毎週の書き出し（2026-10-31 版）を使う。Tatoeba は古い版を残さないので、**版の固定はできない**（取得スクリプトはハッシュが変わったら止まるだけ）。作り直せるよう、取得したファイルは手元の `data/corpora/tatoeba/` に残す（配布はしない） |
+| Tatoeba | 使う | CC BY 2.0 FR（一部 CC0。日本語の多くは田中コーパス由来でパブリックドメイン） | 日常の会話の短い文。実際に打つ文に近い。毎週の書き出し（2026-10-31 版）を使う。Tatoeba は古い版を残さないので、**版の固定はできない**（取得スクリプトはハッシュが変わったら止まるだけ）。作り直せるよう、取得したファイルは手元の `data/corpora/tatoeba/` に残し、これを正とする（配布はしない） |
 | Common Voice | 使う | CC0 1.0 | 読み上げ用に集めた文（`server/data/ja` の 2 ファイル、コミット `1e772a6`）。話し言葉に近く、量は少ない |
 | 青空文庫 | 使う | CC BY 4.0（globis-university/aozorabunko-clean の整えたデータ。元の作品は著作権の切れたもの） | 小説・随筆の会話文。今の表記に近い「新字新仮名」で、著作権の切れた作品だけを使う。量が多く（約 1 万作品・450 万文）文学に偏るので、2,500 作品に絞った。絞り方はファイルの先頭からで、ファイルは作家の順に並んでいるため、655 人のうち 171 人（小川未明が 614 作品）に偏っている。次に作り直すときは無作為に選ぶ |
 | Wikinews 日本語版 | 使う | CC BY 4.0（2005-09-25 以降の投稿。一部に例外あり） | ニュースの文。ダンプ（jawikinews-20261001、SHA-1 は Wikimedia の公開値と一致）の全記事。文が残った 4,076 記事を使う |
@@ -48,7 +48,27 @@
 - 今まで（Wikipedia 300 記事）の学習に使えた例は 19,216 だったので、**約 77 倍**になった。
 - `train.jsonl` には段1の候補に正解がある例だけを書いた（1,401,909 例、gzip で 395 MB）。`dev.jsonl` は全部の例
   （319,356 例、gzip で 112 MB）。GPU での学習は、ここから段階的に無作為に選んで使う（`docs/training-gpu.md`）。
-- 生成は dev コンテナの 10 並列で約 8 時間かかった（1 秒あたり約 220 例。Wikipedia の長い文が遅い）。
+- 生成は dev コンテナの 10 並列で約 8 時間かかった（1 秒あたり約 220 例。Wikipedia の長い文が遅い）。コマンド：
+
+  ```bash
+  scripts/fetch-corpora.sh
+  A=data/corpora/articles; R="python -m"
+  $R aiokey.corpus --limit 20000 --out $A/wikipedia.jsonl
+  $R aiokey.corpus --project jawikinews --dump data/corpora/wikinews/jawikinews-20261001-pages-articles-multistream.xml.bz2 \
+    --limit 1000000 --out $A/wikinews.jsonl
+  $R aiokey.sources tatoeba --in data/corpora/tatoeba/jpn_sentences.tsv.bz2 --out $A/tatoeba.jsonl
+  $R aiokey.sources common-voice --in data/corpora/common-voice/sentence-collector.txt data/corpora/common-voice/yumie-text-1.txt \
+    --out $A/common-voice.jsonl
+  $R aiokey.sources aozora --in data/corpora/aozora/aozorabunko-dedupe-clean.jsonl.gz --limit 2500 --out $A/aozora.jsonl
+  $R aiokey.sources web --in data/corpora/fineweb-2/000_00000.parquet --limit 100000 --out $A/web.jsonl
+  # dev コンテナのメモリの上限は既定で 1.5 GB なので、10 並列のときは AIOKEY_MEM=8g などで上げる
+  $R aiokey.datagen --articles $A/wikipedia.jsonl $A/wikinews.jsonl $A/tatoeba.jsonl $A/common-voice.jsonl $A/aozora.jsonl \
+    $A/web.jsonl --exclude target/examples2000/test.jsonl target/examples/test.jsonl target/eval/test.jsonl \
+    target/eval/atc.jsonl target/eval/proper.jsonl --dict build/aiokey.dic --out target/examples-v2 --splits train,dev \
+    --workers 10 --train-in-stage1-only
+  ```
+- 表の「記事」は記事の形にした数。`stats.json` の `articles` は、例を 1 つ以上作った train / dev の記事だけを数えるので、
+  これより少ない（Wikipedia は 18,944）。
 - 文の長さは今までと同じく 4〜80 文字。会話文を 1 文のまま残すよう、句点の直後が閉じかっこなら切らないようにした
   （「はい、出来ます。」と答えた。が 2 つに切れていた）。
 - 評価の文と同じで除いた文は、Wikipedia の見出しや一覧の項目（「サッカー」「姉妹都市」など、多くの記事に出る短い行）が

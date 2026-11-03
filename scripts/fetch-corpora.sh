@@ -18,13 +18,14 @@ AOZORA_REVISION="42a9c9c0f1d67e6a5554d9bea4201973dc9b049c"
 FINEWEB2_REVISION="af9c13333eb981300149d5ca60a8e9d659b276b9"
 WIKINEWS_DUMP="jawikinews-20261001-pages-articles-multistream.xml.bz2"
 
-# 名前  置き場所（data/corpora の下）  URL
+# 名前  置き場所（data/corpora の下）  URL（| で区切って並べると、取れなかったときに次を試す。Wikimedia は古いダンプを
+# 数か月で消すので、ミラーも並べる）
 FILES=(
   "tatoeba tatoeba/jpn_sentences.tsv.bz2 https://downloads.tatoeba.org/exports/per_language/jpn/jpn_sentences.tsv.bz2"
   "common-voice common-voice/sentence-collector.txt https://raw.githubusercontent.com/common-voice/common-voice/$COMMON_VOICE_COMMIT/server/data/ja/sentence-collector.txt"
   "common-voice common-voice/yumie-text-1.txt https://raw.githubusercontent.com/common-voice/common-voice/$COMMON_VOICE_COMMIT/server/data/ja/yumie-text-1.txt"
   "aozora aozora/aozorabunko-dedupe-clean.jsonl.gz https://huggingface.co/datasets/globis-university/aozorabunko-clean/resolve/$AOZORA_REVISION/aozorabunko-dedupe-clean.jsonl.gz"
-  "wikinews wikinews/$WIKINEWS_DUMP https://dumps.wikimedia.org/jawikinews/20261001/$WIKINEWS_DUMP"
+  "wikinews wikinews/$WIKINEWS_DUMP https://dumps.wikimedia.org/jawikinews/20261001/$WIKINEWS_DUMP|https://dumps.wikimedia.your.org/jawikinews/20261001/$WIKINEWS_DUMP|https://mirror.accum.se/mirror/wikimedia.org/dumps/jawikinews/20261001/$WIKINEWS_DUMP"
   "web fineweb-2/000_00000.parquet https://huggingface.co/datasets/HuggingFaceFW/fineweb-2/resolve/$FINEWEB2_REVISION/data/jpn_Jpan/train/000_00000.parquet"
 )
 
@@ -64,7 +65,13 @@ for entry in "${FILES[@]}"; do
   mkdir -p "$(dirname "$dir/$path")"
   if [ "$verify_only" -eq 0 ]; then
     echo "fetch $path"
-    curl -fSL --retry 3 -o "$dir/$path.part" "$url"
+    fetched=0
+    IFS='|' read -r -a urls <<<"$url"
+    for u in "${urls[@]}"; do
+      if curl -fSL --retry 3 -o "$dir/$path.part" "$u"; then fetched=1; break; fi
+      echo "$path: could not fetch $u, trying the next source" >&2
+    done
+    [ "$fetched" -eq 1 ] || { echo "$path: no source could be fetched" >&2; status=1; continue; }
     actual="$(sha256sum "$dir/$path.part" | cut -d' ' -f1)"
     if [ "$actual" != "$expected" ]; then
       # 一致しなければ使わずに消す

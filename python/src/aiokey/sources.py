@@ -138,12 +138,15 @@ def main(argv: list[str] | None = None) -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     n = sentences = 0
     articles = itertools.chain.from_iterable(READERS[args.kind](path) for path in args.inputs)
-    with open(args.out, "w", encoding="utf-8") as f:
+    # 途中で失敗したときに、切れたファイルが出力として残らないよう、書き終えてから名前を変える
+    partial = args.out.with_suffix(args.out.suffix + ".partial")
+    with open(partial, "w", encoding="utf-8") as f:
         # 読み込みは必要な分だけ進む（Web の Parquet も、上限に達したところで読むのをやめる）
         for a in itertools.islice(articles, args.limit):
             f.write(json.dumps({"id": a.id, "title": a.title, "sentences": a.sentences}, ensure_ascii=False) + "\n")
             n += 1
             sentences += len(a.sentences)
+    partial.replace(args.out)
     print(f"wrote {n} articles ({sentences} sentences) to {args.out}", file=sys.stderr)
     return 0
 
