@@ -86,6 +86,17 @@ def test_small_training_lowers_the_dev_decision_loss(tmp_path):
     assert report["dev"]["decision_loss"] < report["dev_before"]["decision_loss"]
 
 
+def test_training_stops_when_dev_stops_improving_and_keeps_the_best_point(tmp_path):
+    # Issue #41 基準 5：一定のステップごとに dev を測り、良くならなくなったら止めて、いちばんよかった時点を書き出す。
+    # 学習率をわざと大きくして、dev がすぐに悪くなるようにする
+    report = run_train(tmp_path, "--epochs", "5", "--lr", "1", "--warmup", "0", "--eval-every", "1", "--patience", "1")
+    assert report["early_stopped"] and report["steps"] < report["total_steps"] == 20
+    measured = [report["dev_before"]["decision_loss"]] + [h["decision_loss"] for h in report["history"]]
+    assert all("step" in h for h in report["history"])
+    assert report["dev"]["decision_loss"] == pytest.approx(min(measured), abs=1e-4)
+    assert (tmp_path / "out" / "aiokey-stage2-q8_0.gguf").is_file()
+
+
 def test_gpu_server_procedure_is_documented():
     doc = (ROOT / "docs/training-gpu.md").read_text(encoding="utf-8")
     for needle in ["uv sync", "--extra cuda", "python -m aiokey train", "--resume", "--checkpoint", "tar -xf"]:

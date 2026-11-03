@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import gzip
 import json
 import random
 import re
@@ -27,6 +28,7 @@ import shutil
 import subprocess
 import sys
 import time
+from array import array
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -43,14 +45,33 @@ TOKENIZER_FILES = ["vocab.json", "merges.txt", "tokenizer_config.json", "special
 
 @dataclass
 class Encoded:
-    """1 例ぶんの候補のトークン列。"""
+    """1 例ぶんの候補のトークン列。
 
-    sequences: list[list[int]]
-    # 候補の部分が始まる位置（プロンプトの長さ。全候補で同じ）
-    start: int
+    数百万例を読み込めるよう、全候補で同じプロンプトは 1 回だけ持ち、トークンは詰めた配列（int32）で持つ
+    （Python の int のリストで持つと 1 例あたり数十 KB になる。#41）。
+    """
+
+    prompt: array
+    # 候補ごとの、プロンプトのあとのトークン（候補と EOS）
+    tails: list[array]
     gold: int
     # 正解が段1の候補にあったか（なければ aiokey.datagen が候補の最後に足している）
     in_stage1: bool = True
+
+    @property
+    def start(self) -> int:
+        """候補の部分が始まる位置（プロンプトの長さ）。"""
+        return len(self.prompt)
+
+    @property
+    def sequences(self) -> list[list[int]]:
+        prompt = self.prompt.tolist()
+        return [prompt + tail.tolist() for tail in self.tails]
+
+    @property
+    def width(self) -> int:
+        """いちばん長い候補の列の長さ。"""
+        return len(self.prompt) + max(len(tail) for tail in self.tails)
 
 
 def decision_loss(log_probs: torch.Tensor, gold: int) -> torch.Tensor:
@@ -82,32 +103,33 @@ def encode(tokenizer, example: dict, max_candidates: int, max_length: int = 1024
         candidates = candidates[: max(max_candidates - 1, 0)] + [target]
     text = aiokey.prompt("aiokey", example["context"], example["input"], "")
     prompt = tokenizer.encode(text.replace("\0", ""), add_special_tokens=False)
-    sequences, gold = [], None
+    tails, gold = [], None
     for c in candidates:
-        seq = prompt + tokenizer.encode(c.replace("\0", ""), add_special_tokens=False) + [tokenizer.eos_token_id]
+        tail = tokenizer.encode(c.replace("\0", ""), add_special_tokens=False) + [tokenizer.eos_token_id]
         # 長すぎる候補は落とす（採点器も、切り詰めずに採点しない）
-        if len(seq) > max_length:
+        if len(prompt) + len(tail) > max_length:
             continue
         if c == target:
-            gold = len(sequences)
-        sequences.append(seq)
+            gold = len(tails)
+        tails.append(array("i", tail))
     if gold is None:
         return None
-    return Encoded(sequences, len(prompt), gold, bool(example.get("gold_in_stage1", True)))
+    return Encoded(array("i", prompt), tails, gold, bool(example.get("gold_in_stage1", True)))
 
 
 def candidate_log_probs(model, batch: list[Encoded]) -> list[torch.Tensor]:
     """例ごとに、候補の log P(候補 | 文脈, 入力) を並べたテンソルを返す。"""
     device = next(model.parameters()).device
-    rows = [s for e in batch for s in e.sequences]
+    per_example = [e.sequences for e in batch]
+    rows = [s for seqs in per_example for s in seqs]
     width = max(len(s) for s in rows)
     ids = torch.zeros((len(rows), width), dtype=torch.long)
     attention = torch.zeros((len(rows), width), dtype=torch.long)
     # 位置 p のトークンは、位置 p-1 の出力から確率を取る。候補の部分（start 以降）だけを数える
     counted = torch.zeros((len(rows), width - 1), dtype=torch.bool)
     i = 0
-    for e in batch:
-        for s in e.sequences:
+    for e, seqs in zip(batch, per_example):
+        for s in seqs:
             ids[i, : len(s)] = torch.tensor(s)
             attention[i, : len(s)] = 1
             counted[i, max(e.start, 1) - 1 : len(s) - 1] = True
@@ -120,7 +142,7 @@ def candidate_log_probs(model, batch: list[Encoded]) -> list[torch.Tensor]:
     token_lp = -F.cross_entropy(logits, ids[:, 1:][counted], reduction="none")
     row_of_token = counted.nonzero()[:, 0]
     totals = torch.zeros(len(rows), device=device, dtype=token_lp.dtype).index_add(0, row_of_token, token_lp)
-    return list(torch.split(totals, [len(e.sequences) for e in batch]))
+    return list(torch.split(totals, [len(e.tails) for e in batch]))
 
 
 def losses(model, batch: list[Encoded], lm_weight: float):
@@ -129,7 +151,7 @@ def losses(model, batch: list[Encoded], lm_weight: float):
     decision = torch.stack([decision_loss(lp, e.gold) for lp, e in zip(log_probs, batch)]).mean()
     # 正解の候補（と EOS）のトークンあたりの負の対数尤度
     lm = torch.stack(
-        [-lp[e.gold] / (len(e.sequences[e.gold]) - e.start) for lp, e in zip(log_probs, batch)]
+        [-lp[e.gold] / len(e.tails[e.gold]) for lp, e in zip(log_probs, batch)]
     ).mean()
     total = decision if lm_weight == 0 else decision + lm_weight * lm
     return total, decision, lm
@@ -160,10 +182,10 @@ def make_batches(examples: list[Encoded], max_examples: int, max_tokens: int) ->
     1 バッチの列は、いちばん長い列の長さにそろえて計算するので、長い例が 1 つ混じると全体が重くなる。
     長さの順に並べてから区切ると、パディングが減り、GPU のメモリも読みやすくなる。
     """
-    width = [max(len(s) for s in e.sequences) for e in examples]
+    width = [e.width for e in examples]
     batches, current, rows, longest = [], [], 0, 0
     for i in sorted(range(len(examples)), key=lambda i: width[i]):
-        n = len(examples[i].sequences)
+        n = len(examples[i].tails)
         if current and (len(current) >= max_examples or (rows + n) * max(longest, width[i]) > max_tokens):
             batches.append(current)
             current, rows, longest = [], 0, 0
@@ -217,34 +239,58 @@ def export_gguf(model_dir: Path, out: Path, outtype: str, llama_cpp: Path) -> No
     )
 
 
+def _lines(path: Path):
+    """（行番号, 行）を返す。空の行は飛ばす。`.gz` なら展開しながら読む（GPU サーバーのディスクが小さいので
+    圧縮したまま送って置く）。"""
+    with (gzip.open(path, "rt", encoding="utf-8") if path.suffix == ".gz" else open(path, encoding="utf-8")) as f:
+        for no, line in enumerate(f, 1):
+            if line.strip():
+                yield no, line
+
+
+def _parse_example(path: Path, no: int, line: str) -> dict:
+    try:
+        e = json.loads(line)
+    except json.JSONDecodeError as err:
+        raise ValueError(f"{path}:{no}: {err}") from None
+    if not isinstance(e, dict):
+        raise ValueError(f"{path}:{no}: expected a JSON object")
+    missing = [k for k in ("input", "target", "candidates") if k not in e]
+    if missing:
+        raise ValueError(f"{path}:{no}: missing {', '.join(missing)}")
+    # 文脈はなくてもよい（null も空として扱う）
+    e["context"] = e.get("context") or ""
+    strings = [e["context"], e["input"], e["target"]]
+    if not isinstance(e["candidates"], list) or not all(isinstance(x, str) for x in strings + e["candidates"]):
+        raise ValueError(f"{path}:{no}: context, input, target and candidates must be strings")
+    return e
+
+
 def read_examples(path: Path):
     """学習に使う例（aiokey.datagen の JSONL）を読む。"""
-    with open(path, encoding="utf-8") as f:
-        for no, line in enumerate(f, 1):
-            if not line.strip():
-                continue
-            try:
-                e = json.loads(line)
-            except json.JSONDecodeError as err:
-                raise ValueError(f"{path}:{no}: {err}") from None
-            if not isinstance(e, dict):
-                raise ValueError(f"{path}:{no}: expected a JSON object")
-            missing = [k for k in ("input", "target", "candidates") if k not in e]
-            if missing:
-                raise ValueError(f"{path}:{no}: missing {', '.join(missing)}")
-            # 文脈はなくてもよい（null も空として扱う）
-            e["context"] = e.get("context") or ""
-            strings = [e["context"], e["input"], e["target"]]
-            if not isinstance(e["candidates"], list) or not all(isinstance(x, str) for x in strings + e["candidates"]):
-                raise ValueError(f"{path}:{no}: context, input, target and candidates must be strings")
-            yield e
+    for no, line in _lines(path):
+        yield _parse_example(path, no, line)
 
 
 def _encode_all(
-    tokenizer, path: Path, max_candidates: int, limit: int | None, only_in_stage1: bool = False
+    tokenizer, path: Path, max_candidates: int, limit: int | None, only_in_stage1: bool = False,
+    sample: int | None = None, seed: int = 0,
 ) -> list[Encoded]:
+    """例を読んでトークン列にする。`limit` は先頭からの数、`sample` は全体から無作為に選ぶ数（データの量を
+    段階的に増やして伸びを見るとき。aiokey.datagen の出力はコーパスの順に並んでいるので、先頭からでは偏る）。"""
+    examples = read_examples(path)
+    if sample is not None:
+        # 数百万例をすべてメモリに読まないよう、1 回目は使える行の番号だけを数え、2 回目に選んだ行だけを JSON にする。
+        # 1 回目は行の文字列だけを見る（148 万例を毎回 JSON にすると、段階ごとに数十分かかる）。aiokey.datagen は
+        # json.dumps の既定の区切りで書くので、正解が段1の候補にない例には必ずこの文字列がある
+        added = '"gold_in_stage1": false'
+        usable = [no for no, line in _lines(path) if not (only_in_stage1 and added in line)]
+        # 混ぜた並びの先頭から取るので、同じ seed なら小さい段階の例は大きい段階の例に含まれる（段階どうしを比べやすい）
+        random.Random(seed).shuffle(usable)
+        chosen = set(usable[:sample])
+        examples = (_parse_example(path, no, line) for no, line in _lines(path) if no in chosen)
     out = []
-    for e in read_examples(path):
+    for e in examples:
         if limit is not None and len(out) >= limit:
             break
         enc = encode(tokenizer, e, max_candidates)
@@ -272,8 +318,9 @@ def run(args) -> dict:
     torch.manual_seed(args.seed)
     model, tokenizer = load(args.base, device)
     # 正解を後から足した例は、正解だけが段1の作らない文になり「毛色の違う 1 つ」を選ぶ学習になるので、既定では使わない
-    train_set = _encode_all(tokenizer, args.train, args.max_candidates, args.limit, not args.keep_added_gold)
-    dev_set = _encode_all(tokenizer, args.dev, args.max_candidates, args.limit)
+    train_set = _encode_all(tokenizer, args.train, args.max_candidates, args.limit, not args.keep_added_gold,
+                            args.train_sample, args.seed)
+    dev_set = _encode_all(tokenizer, args.dev, args.max_candidates, args.limit, sample=args.dev_sample, seed=args.seed)
     if not train_set:
         raise ValueError(f"{args.train}: no training examples")
 
@@ -289,6 +336,9 @@ def run(args) -> dict:
     autocast = torch.autocast("cuda", dtype=torch.bfloat16) if device == "cuda" else contextlib.nullcontext()
 
     step, history, resumed_from = 0, [], None
+    # dev がいちばんよかった時点（decision loss）。--eval-every のたびに比べ、--patience 回続けて良くならなければ止める
+    best = {"step": 0, "loss": None, "model": None}
+    stale, early_stopped = 0, False
     start_epoch, start_position, saved_order = 0, 0, None
     checkpoint = args.checkpoint / "checkpoint.pt" if args.checkpoint else None
     if args.resume:
@@ -307,6 +357,8 @@ def run(args) -> dict:
             raise ValueError(f"--stop-after {args.stop_after} is not after the checkpoint (step {step})")
         start_epoch, start_position, saved_order = ck["epoch"], ck["position"], ck["order"]
         history, dev_before = ck["history"], ck["dev_before"]
+        if ck.get("best") is not None:
+            best, stale = ck["best"], ck["stale"]
         # 乱数（例の順番、ドロップアウト）も止めたところから続ける
         random.setstate(ck["python_rng"])
         torch.set_rng_state(ck["torch_rng"])
@@ -315,6 +367,25 @@ def run(args) -> dict:
         print(f"resumed from step {step}/{total_steps}", file=sys.stderr)
     else:
         _, dev_before = evaluate(model, dev_set, args.batch_size, args.max_batch_tokens)
+    if best["loss"] is None:
+        best["loss"] = dev_before.get("decision_loss")
+
+    def check_dev(epoch: int) -> bool:
+        """dev を測って記録し、いちばんよければ覚える。止めるときは True。"""
+        nonlocal stale
+        _, report = evaluate(model, dev_set, args.batch_size, args.max_batch_tokens)
+        history.append({"epoch": epoch + 1, "step": step, **report})
+        print(f"epoch {epoch + 1} step {step} dev {json.dumps(report)}", file=sys.stderr)
+        loss = report.get("decision_loss")
+        if loss is not None and loss == loss and (best["loss"] is None or loss < best["loss"]):
+            # 写しは、いちばんよかった時点に戻すとき（--eval-every か --patience を付けたとき）だけ持つ
+            keep = bool(args.eval_every or args.patience)
+            best.update(step=step, loss=loss,
+                        model={k: v.detach().cpu().clone() for k, v in model.state_dict().items()} if keep else None)
+            stale = 0
+        else:
+            stale += 1
+        return bool(args.patience) and stale >= args.patience
 
     def save(epoch: int, position: int, order) -> None:
         if checkpoint is None:
@@ -332,6 +403,8 @@ def run(args) -> dict:
                 "order": order,
                 "history": history,
                 "dev_before": dev_before,
+                "best": best,
+                "stale": stale,
                 "python_rng": random.getstate(),
                 "torch_rng": torch.get_rng_state(),
                 "cuda_rng": torch.cuda.get_rng_state_all() if device == "cuda" else None,
@@ -375,12 +448,22 @@ def run(args) -> dict:
                 args.out.mkdir(parents=True, exist_ok=True)
                 (args.out / "train.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
                 return report
+            if args.eval_every and step % args.eval_every == 0 and not done_in_epoch and check_dev(epoch):
+                early_stopped = True
+                break
             if args.checkpoint_every and step % args.checkpoint_every == 0 and not done_in_epoch:
                 save(epoch, i + 1, order)
-        _, dev_report = evaluate(model, dev_set, args.batch_size, args.max_batch_tokens)
-        history.append({"epoch": epoch + 1, **dev_report})
-        print(f"epoch {epoch + 1} dev {json.dumps(dev_report)}", file=sys.stderr)
+        if early_stopped or check_dev(epoch):
+            early_stopped = True
+            break
         save(epoch + 1, 0, None)
+
+    if args.eval_every or args.patience:
+        # いちばんよかった時点に戻してから、校正して書き出す（学習前がいちばんよければ元のモデル）
+        if best["model"] is not None:
+            model.load_state_dict(best["model"])
+        elif best["step"] == 0:
+            model, _ = load(args.base, device)
 
     dev_log_probs, dev_report = evaluate(model, dev_set, args.batch_size, args.max_batch_tokens)
     temperature = fit_temperature(dev_log_probs, [e.gold for e in dev_set])
@@ -416,6 +499,9 @@ def run(args) -> dict:
         "seconds": round(time.monotonic() - started, 1),
         "temperature": temperature,
         "stopped": False,
+        "total_steps": total_steps,
+        "early_stopped": early_stopped,
+        "best_step": best["step"],
         "resumed_from": resumed_from,
         "final_lr": schedule.get_last_lr()[0],
         "peak_gpu_gb": _peak_gpu_gb(device),
@@ -455,6 +541,14 @@ def parser() -> argparse.ArgumentParser:
         help="段1の候補に正解がなく、正解を足した例も学習に使う（既定では使わない）",
     )
     p.add_argument("--limit", type=int, help="train と dev のそれぞれで、使える例をこの数まで使う（長すぎて落とした例は数えない）")
+    p.add_argument("--train-sample", type=int,
+                   help="train から無作為にこの数の例を選んで使う（データの量を段階的に増やして伸びを見るとき）")
+    p.add_argument("--dev-sample", type=int,
+                   help="dev から無作為にこの数の例を選んで使う（途中で何度も測るので、測る時間を抑える）")
+    p.add_argument("--eval-every", type=int, default=0,
+                   help="このステップごとに dev を測る（0 なら各エポックの終わりだけ）。いちばんよかった時点を書き出す")
+    p.add_argument("--patience", type=int, default=0,
+                   help="dev の decision loss がこの回数続けて良くならなければ止める（0 なら止めない）")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--log-every", type=int, default=50)
     p.add_argument("--f32", action="store_true", help="答え合わせ用に f32 の GGUF も書く")
