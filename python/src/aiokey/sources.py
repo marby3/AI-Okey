@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import bz2
 import gzip
+import itertools
 import json
 import sys
 from pathlib import Path
@@ -136,18 +137,13 @@ def main(argv: list[str] | None = None) -> int:
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     n = sentences = 0
+    articles = itertools.chain.from_iterable(READERS[args.kind](path) for path in args.inputs)
     with open(args.out, "w", encoding="utf-8") as f:
-        for path in args.inputs:
-            left = None if args.limit is None else args.limit - n
-            if left is not None and left <= 0:
-                break
-            articles = read_web(path, left) if args.kind == "web" else READERS[args.kind](path)
-            for a in articles:
-                if left is not None and n >= args.limit:
-                    break
-                f.write(json.dumps({"id": a.id, "title": a.title, "sentences": a.sentences}, ensure_ascii=False) + "\n")
-                n += 1
-                sentences += len(a.sentences)
+        # 読み込みは必要な分だけ進む（Web の Parquet も、上限に達したところで読むのをやめる）
+        for a in itertools.islice(articles, args.limit):
+            f.write(json.dumps({"id": a.id, "title": a.title, "sentences": a.sentences}, ensure_ascii=False) + "\n")
+            n += 1
+            sentences += len(a.sentences)
     print(f"wrote {n} articles ({sentences} sentences) to {args.out}", file=sys.stderr)
     return 0
 

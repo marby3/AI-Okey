@@ -51,8 +51,9 @@ def test_wikipedia_grows_past_20000_articles_and_test_articles_stay_out_of_train
     # 基準 1：記録した Wikipedia の記事が 2 万以上。いくつのソースを並列に混ぜても、test の記事は train / dev に入らない
     row = table_row(DOC.read_text(encoding="utf-8"), "Wikipedia")
     assert int(row[1].replace(",", "")) >= 20000, row
-    wiki = write_articles(tmp_path / "wiki.jsonl", [(f"{i}", ["果たして本当に。"]) for i in range(120)])
-    other = write_articles(tmp_path / "tatoeba.jsonl", [(f"tatoeba:{i}", ["今日は天気が良い。"]) for i in range(120)])
+    # test の記事の文はほかの記事でも使わないので、記事ごとに違う文にする
+    wiki = write_articles(tmp_path / "wiki.jsonl", [(f"{i}", [f"果たして{i}回目は本当に。"]) for i in range(120)])
+    other = write_articles(tmp_path / "tatoeba.jsonl", [(f"tatoeba:{i}", [f"今日は{i}日で天気が良い。"]) for i in range(120)])
     out = tmp_path / "examples"
     datagen.main(["--articles", str(wiki), str(other), "--dict", str(dict_path), "--out", str(out),
                   "--splits", "train,dev", "--workers", "2"])
@@ -114,15 +115,27 @@ def test_web_corpus_has_its_legal_basis_recorded_and_never_enters_the_repo_or_re
                  "target/examples/train.jsonl"]:
         # コンテナの中ではリポジトリの持ち主が違うので、safe.directory を付ける
         assert subprocess.run(["git", "-c", "safe.directory=*", "check-ignore", "-q", path], cwd=ROOT).returncode == 0, path
-    shipped = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    for installer in (ROOT / "installer").glob("*"):
-        shipped += installer.read_text(encoding="utf-8", errors="ignore")
-    assert not re.search(r"corpora|\.parquet|articles\.jsonl|train\.jsonl|fineweb", shipped, re.I)
+    # 配布物に入るファイル（Release の Copy-Item と gh release、インストーラーの Source:）は、決めた一覧のものだけ
+    allowed = {"aiokey.dll", "aiokey-server.exe", "aiokey-ui.exe", "aiokey-launcher.exe", "aiokey-cli.exe", "LICENSE",
+               "NOTICE", "aiokey.dic", "aiokey-stage2-q8_0.gguf", "aiokey-stage2.json", "README.txt", "register.ps1",
+               "MOZC-DICTIONARY-README.txt", "dxwebsetup.exe"}
+    release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    shipped = [s.strip().strip('"') for line in re.findall(r"Copy-Item (.+?) (?:\$out|\"\$out)", release)
+               for s in line.split(",")]
+    create = re.search(r"gh release create (.+?)--title", release, re.S).group(1)
+    shipped += [s.strip('"') for s in create.replace("\\\n", " ").split()[1:] if "$GITHUB_REF_NAME" not in s]
+    for iss in (ROOT / "installer").glob("*.iss"):
+        shipped += re.findall(r'^Source: "[^"]*?([^"/}]+)"', iss.read_text(encoding="utf-8", errors="ignore"), re.M)
+    assert shipped and {Path(s).name for s in shipped} <= allowed, sorted({Path(s).name for s in shipped} - allowed)
 
 
 def test_evaluation_sentences_are_removed_from_training_data(tmp_path, dict_path):
     # 基準 4：評価の例（test セット、ATC 2026、固有名詞）の正解と同じ文は、学習の文にも文脈にも使わない
-    articles = write_articles(tmp_path / "a.jsonl", [(f"{i}", ["今日は雨です。", "果たして本当に。"]) for i in range(60)])
+    # 除く文は test でない記事にだけ置く（test の記事の文は、それだけで train / dev から除かれるので）
+    articles = write_articles(tmp_path / "a.jsonl", [
+        (f"{i}", (["今日は雨です。"] if datagen.split_of(f"{i}") != "test" else []) + [f"果たして{i}回目は本当に。"])
+        for i in range(60)
+    ])
     atc = tmp_path / "atc.jsonl"
     atc.write_text(json.dumps({"target": "今日は雨です。"}, ensure_ascii=False) + "\n", encoding="utf-8")
     out = tmp_path / "examples"

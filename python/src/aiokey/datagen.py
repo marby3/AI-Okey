@@ -12,10 +12,11 @@
     python -m aiokey.datagen --articles data/wiki/articles.jsonl data/corpora/articles/tatoeba.jsonl \
         --exclude target/eval/atc.jsonl --dict build/aiokey.dic --out data/examples --workers 8
 
+test を作らないとき（`--splits train,dev`）は、test の記事に出てくる文を train / dev でも使わない（例を作ったあとで除く）。
 例は作りながら書き出す（数百万例でもメモリに持たない）。train と dev には学習に使わない項目（`tokens`、`skeleton`、
 `reading`）を書かず、`missing.jsonl` には漏れの記録に要る項目だけを書く。`--train-in-stage1-only` を付けると、train には
 段1の候補に正解がある例だけを書く（学習は既定でその例だけを使うので、結果は同じでファイルが 3 割ほどになる）。乱数は記事ごとに（入力の中の位置と記事 ID から）決めるので、
-`--workers` の数によらず同じ例ができる。`stats.json` に、コーパスごと（記事 ID の `:` の前。ないものは wikipedia）の
+`--workers` の数によらず同じ例ができる（位置は `--splits` で絞ったあとの並びで数えるので、`--splits` を変えると変わる）。`stats.json` に、コーパスごと（記事 ID の `:` の前。ないものは wikipedia）の
 記事・例の数と、段1の候補に正解がある例の数を書く。
 """
 
@@ -95,11 +96,13 @@ def generate(
     annotator: rd.Annotator | None = None,
     exclude: set[str] | frozenset[str] = frozenset(),
     start: int = 0,
+    drop: set[str] | frozenset[str] = frozenset(),
 ) -> tuple[list[dict], list[dict]]:
     """記事（ID と文の並び）から例を作る。`converter` が None なら候補集合は正解だけにする。
 
     `exclude`（[`normalize`] した文）に入っている文は、例にも次の文の文脈にも使わない。`start` は最初の記事の
-    入力の中での位置（乱数を記事ごとに決めるのに使う）。
+    入力の中での位置（乱数を記事ごとに決めるのに使う）。`drop` に入っている文も、例にも文脈にも使わないが、
+    例を作ったあと（乱数を使ったあと）で除く。ほかの例の作り方を変えずに、あとから除く文を足せる。
     """
     annotator = annotator or rd.Annotator()
     examples, missing = [], []
@@ -118,6 +121,10 @@ def generate(
             previous = sentence
             if example is None:
                 continue
+            if drop and normalize(sentence) in drop:
+                continue
+            if drop and example["context"] and normalize(example["context"]) in drop:
+                example["context"], example["has_context"] = "", False
             candidates = converter.convert(example["input"], k) if converter else []
             example["gold_in_stage1"] = example["target"] in candidates
             if not example["gold_in_stage1"]:
@@ -179,6 +186,16 @@ def _read_articles(path: Path) -> Iterable[tuple[str, list[str]]]:
             yield a["id"], a["sentences"]
 
 
+def test_sentences(paths: Iterable[Path]) -> frozenset[str]:
+    """test に分けた記事の文（[`normalize`] した形）。train / dev では使わない。
+
+    評価の例は正解を途中で切ったものがあり（`truncate_rate`）、その元の文全体は評価の例に残らない。test の記事の文を
+    まるごと除いておけば、ほかの記事やコーパスに同じ文があっても学習に入らない（#41 のレビュー）。
+    """
+    return frozenset(normalize(s) for path in paths for a, sentences in _read_articles(path)
+                     if split_of(a) == "test" for s in sentences)
+
+
 def source_of(article: str) -> str:
     """記事 ID からコーパスの名前（aiokey.sources は `名前:` を前に付ける。Wikipedia は付けない）。"""
     return article.split(":", 1)[0] if ":" in article else "wikipedia"
@@ -194,11 +211,12 @@ CHUNK_SENTENCES = 2000
 _worker: dict = {}
 
 
-def _init_worker(dict_path: str, config: Config, k: int, exclude: frozenset[str], train_in_stage1_only: bool) -> None:
+def _init_worker(dict_path: str, config: Config, k: int, exclude: frozenset[str], train_in_stage1_only: bool,
+                 drop: frozenset[str]) -> None:
     from aiokey import Converter
 
     _worker.update(converter=Converter(dict_path), annotator=rd.Annotator(), config=config, k=k, exclude=exclude,
-                   train_in_stage1_only=train_in_stage1_only)
+                   train_in_stage1_only=train_in_stage1_only, drop=drop)
 
 
 def _generate_chunk(chunk: tuple[int, list[tuple[str, list[str]]]]):
@@ -208,7 +226,8 @@ def _generate_chunk(chunk: tuple[int, list[tuple[str, list[str]]]]):
     """
     start, articles = chunk
     w = _worker
-    examples, missing = generate(articles, w["converter"], w["config"], w["k"], w["annotator"], w["exclude"], start)
+    examples, missing = generate(articles, w["converter"], w["config"], w["k"], w["annotator"], w["exclude"], start,
+                                 w["drop"])
     rows = []
     for e in examples:
         split = split_of(e["article"])
@@ -286,46 +305,55 @@ def main(argv: list[str] | None = None) -> int:
 
     config = Config(args.vowel_rate, args.truncate_rate, args.context_rate, args.seed)
     exclude = frozenset(eval_sentences(args.exclude))
+    # test を作らないときは、test の記事の文を train / dev から除く（作るときは test の例に要るので除かない）
+    drop = test_sentences(args.articles) if "test" not in wanted else frozenset()
     articles = (a for path in args.articles for a in _read_articles(path) if split_of(a[0]) in wanted)
+
+    # 拡張モジュール（辞書）は、引数を確かめてから読み込む。並列のときも先にここで読んで確かめる
+    # （ワーカーの初期化で失敗すると、プールがワーカーを作り直し続けて終わらない）
+    from aiokey import Converter
+
+    Converter(str(args.dict))
+    # 途中で失敗したときに、途中までのファイルが出力として残らないよう、書き終えてから名前を変える
     args.out.mkdir(parents=True, exist_ok=True)
-    outputs = {name: open(args.out / f"{name}.jsonl", "w", encoding="utf-8") for name in sorted(wanted)}
-    missing_out = open(args.out / "missing.jsonl", "w", encoding="utf-8")
+    names = [*sorted(wanted), "missing"]
+    files = {name: open(args.out / f"{name}.jsonl.partial", "w", encoding="utf-8") for name in names}
     english: Counter = Counter()
     stats: dict[str, Counter] = {}
     seen_articles: set[str] = set()
+    pool = None
     try:
-        # 拡張モジュール（辞書）は、引数を確かめてから読み込む。並列のときも先にここで読んで確かめる
-        # （ワーカーの初期化で失敗すると、プールがワーカーを作り直し続けて終わらない）
-        from aiokey import Converter
-
-        Converter(str(args.dict))
-        init = (str(args.dict), config, args.k, exclude, args.train_in_stage1_only)
+        init = (str(args.dict), config, args.k, exclude, args.train_in_stage1_only, drop)
         chunks = _chunks(articles, CHUNK_SENTENCES)
         if args.workers == 1:
             _init_worker(*init)
             results = map(_generate_chunk, chunks)
-            pool = None
         else:
             pool = Pool(args.workers, _init_worker, init)
             results = _bounded_imap(pool, chunks, 3 * args.workers)
         for rows, missed, counts in results:
             for split, line, article, gold in rows:
                 if line is not None:
-                    outputs[split].write(line)
+                    files[split].write(line)
                 s = stats.setdefault(source_of(article), Counter())
                 s["examples"] += 1
                 s["gold_in_stage1"] += gold
                 if article not in seen_articles:
                     seen_articles.add(article)
                     s["articles"] += 1
-            missing_out.writelines(missed)
+            files["missing"].writelines(missed)
             english.update(counts)
         if pool is not None:
             pool.close()
             pool.join()
+            pool = None
     finally:
-        for f in [*outputs.values(), missing_out]:
+        if pool is not None:
+            pool.terminate()
+        for f in files.values():
             f.close()
+    for name in names:
+        (args.out / f"{name}.jsonl.partial").replace(args.out / f"{name}.jsonl")
     write_english_tsv([], args.out / "english.tsv", english)
     (args.out / "stats.json").write_text(
         json.dumps({name: dict(s) for name, s in sorted(stats.items())}, indent=2) + "\n", encoding="utf-8"

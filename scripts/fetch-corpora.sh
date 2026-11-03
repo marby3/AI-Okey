@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 段2の学習に加えるコーパスを取得し、SHA-256 を確かめる（#41）。どれを使うか、ライセンス、Web のコーパスを使う
-# 法的な根拠は docs/training-data.md。Wikipedia と Wikinews はダンプから直接読む（python -m aiokey.corpus）。
+# 法的な根拠は docs/training-data.md。Wikinews のダンプは取得して検証してから読む（python -m aiokey.corpus --dump）。
+# Wikipedia は 4.9 GB のダンプの先頭だけを使うので、取得せずに流しながら読む（今までと同じ）。
 #
 #   scripts/fetch-corpora.sh                  すべて取得して検証する（置き場所は data/corpora）
 #   scripts/fetch-corpora.sh tatoeba aozora   名前を挙げたものだけ
@@ -15,6 +16,7 @@ set -euo pipefail
 COMMON_VOICE_COMMIT="1e772a6064fa1433b890d111ed8d11eb5cd428e6"
 AOZORA_REVISION="42a9c9c0f1d67e6a5554d9bea4201973dc9b049c"
 FINEWEB2_REVISION="af9c13333eb981300149d5ca60a8e9d659b276b9"
+WIKINEWS_DUMP="jawikinews-20261001-pages-articles-multistream.xml.bz2"
 
 # 名前  置き場所（data/corpora の下）  URL
 FILES=(
@@ -22,6 +24,7 @@ FILES=(
   "common-voice common-voice/sentence-collector.txt https://raw.githubusercontent.com/common-voice/common-voice/$COMMON_VOICE_COMMIT/server/data/ja/sentence-collector.txt"
   "common-voice common-voice/yumie-text-1.txt https://raw.githubusercontent.com/common-voice/common-voice/$COMMON_VOICE_COMMIT/server/data/ja/yumie-text-1.txt"
   "aozora aozora/aozorabunko-dedupe-clean.jsonl.gz https://huggingface.co/datasets/globis-university/aozorabunko-clean/resolve/$AOZORA_REVISION/aozorabunko-dedupe-clean.jsonl.gz"
+  "wikinews wikinews/$WIKINEWS_DUMP https://dumps.wikimedia.org/jawikinews/20261001/$WIKINEWS_DUMP"
   "web fineweb-2/000_00000.parquet https://huggingface.co/datasets/HuggingFaceFW/fineweb-2/resolve/$FINEWEB2_REVISION/data/jpn_Jpan/train/000_00000.parquet"
 )
 

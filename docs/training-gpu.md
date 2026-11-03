@@ -5,7 +5,8 @@
 
 #41 で学習データを大きく増やした（`docs/training-data.md`）。**データの量を段階的に増やして dev の伸びを見て、伸びが
 止まったら終える**（下の「4. 学習する」）。1 回の学習の中でも、dev が良くならなくなったら止め、いちばんよかった時点を
-書き出す（過学習を防ぐ）。この手順で学習し直して比べる作業は #55。
+書き出す（過学習を防ぐ）。この手順で学習し直して比べる作業は #55。比べるときは評価の例を作り直さず、今ある `target/eval/*.jsonl` と
+`target/examples2000/test.jsonl` を使う（`docs/training-data.md` の「評価に使う文を除く」）。
 
 サーバーのディスクは空きが少ない（2026-10 時点で約 17GB）ので、Docker のイメージ（`docker/train.Dockerfile`、
 数十 GB）は使わず、uv と Rust を `~/aiokey-train` の下に入れる。システムには手を入れないので、片付けはこのフォルダを消すだけでよい。
@@ -51,7 +52,7 @@ tar -C data -cf - zenz-v2.5-xsmall llama.cpp-<commit> | $SSH 'mkdir -p ~/aiokey-
 
 学習の例（#41 で作った `target/examples-v2`）は、圧縮したまま送って置く（`python -m aiokey train` は `.gz` をそのまま
 読む）。train には段1の候補に正解がある例だけが入っている（`aiokey.datagen --train-in-stage1-only`）。送る前に、
-サーバーのディスクの空き（`df -h ~`）が圧縮したファイル（#41 のデータで train 413 MB、dev 114 MB）より 5 GB 以上多いことを確かめる。
+サーバーのディスクの空き（`df -h ~`）が圧縮したファイル（#41 のデータで train 395 MB、dev 112 MB）より 5 GB 以上多いことを確かめる。
 
 ```bash
 docker compose run --rm -T dev bash -c 'cd /work/target/examples-v2 && gzip -1 -kf train.jsonl dev.jsonl'
@@ -105,14 +106,14 @@ cd $T/repo/python
 export T E=$T/data/examples
 mkdir -p $T/logs
 nohup bash -c '
-for n in 20000 40000 80000 160000 320000 640000 1280000 1479128; do
+for n in 20000 40000 80000 160000 320000 640000 1280000 1401909; do
   $T/venv/bin/python -m aiokey train --train $E/train.jsonl.gz --dev $E/dev.jsonl.gz \
     --train-sample $n --dev-sample 20000 --out $T/out/$n --checkpoint $T/checkpoint/$n \
     --epochs 4 --max-batch-tokens 32768 --lr 2e-4 --eval-every 8000 --patience 3 > $T/logs/$n.log 2>&1 || exit 1
   # 終える条件：前の段階より dev の top-1（段1の候補に正解がある例）が 0.5 ポイント未満しか上がらなければ終える
   $T/venv/bin/python - "$T/out" <<"PY" || break
 import json, pathlib, sys
-runs = sorted((int(p.name), json.loads((p / "train.json").read_text())["dev"]["top1_in_stage1"])
+runs = sorted((int(p.name), json.loads((p / "train.json").read_text())["dev"].get("top1_in_stage1") or 0.0)
               for p in pathlib.Path(sys.argv[1]).iterdir() if (p / "train.json").is_file())
 print(runs, file=sys.stderr)
 sys.exit(1 if len(runs) >= 2 and runs[-1][1] - runs[-2][1] < 0.005 else 0)
@@ -152,10 +153,10 @@ GPU サーバー（RTX A4000、`--max-batch-tokens 32768`）で、#41 の新し�
 | 320,000 | 1.6 時間 | 6.2 時間 |
 | 640,000 | 3.1 時間 | 12.5 時間 |
 | 1,280,000 | 6.2 時間 | 25.0 時間 |
-| 1,479,128 | 7.2 時間 | 28.8 時間 |
+| 1,401,909 | 6.8 時間 | 27.3 時間 |
 
-全部の段階を 1 エポックずつ流すと約 20 時間、上限の 4 エポックずつなら約 78 時間。各段階の始めに、
-train（gzip で 413 MB、約 148 万例）を 2 回読んで例を選ぶので、数分ずつ足される。
+全部の段階を 1 エポックずつ流すと約 19 時間、上限の 4 エポックずつなら約 77 時間。各段階の始めに、
+train（gzip で 395 MB、約 140 万例）を 2 回読んで例を選ぶので、数分ずつ足される（1 回目は行の文字列を見るだけ）。
 
 大きい段階は 1〜2 エポックで止まる見込みで、終える条件で途中の段階で終わることも多い。時間の制限は設けない（2026-11-03、ユーザー）。
 

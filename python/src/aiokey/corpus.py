@@ -170,6 +170,12 @@ USER_AGENT = "AI-Okey-datagen/0.6 (https://github.com/marby3/AI-Okey)"
 HTTP_TIMEOUT = 60
 
 
+def _file_chunks(path: Path, size: int = 1 << 20) -> Iterator[bytes]:
+    with open(path, "rb") as f:
+        while chunk := f.read(size):
+            yield chunk
+
+
 def _http_chunks(url: str, size: int = 1 << 20) -> Iterator[bytes]:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as response:
@@ -184,15 +190,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--date", default=DUMP_DATE, help="ダンプの日付（YYYYMMDD）")
     parser.add_argument("--project", choices=["jawiki", "jawikinews"], default="jawiki",
                         help="ダンプ（Wikipedia か Wikinews）。Wikinews の記事 ID には wikinews: を前に付ける（ページ番号が重なるため）")
+    parser.add_argument("--dump", type=Path,
+                        help="取得して検証したダンプのファイル（scripts/fetch-corpora.sh）。なければ Wikimedia から流しながら読む")
     args = parser.parse_args(argv)
     prefix = "" if args.project == "jawiki" else "wikinews:"
+    chunks = _file_chunks(args.dump) if args.dump else _http_chunks(dump_url(args.date, args.project))
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     # 途中で失敗したときに、切れたファイルが出力として残らないよう、書き終えてから名前を変える
     partial = args.out.with_suffix(args.out.suffix + ".partial")
     n = 0
     with partial.open("w", encoding="utf-8") as f:
-        for article in extract_articles(_http_chunks(dump_url(args.date, args.project)), args.limit):
+        for article in extract_articles(chunks, args.limit):
             article.id = prefix + article.id
             f.write(json.dumps(article.__dict__, ensure_ascii=False) + "\n")
             n += 1

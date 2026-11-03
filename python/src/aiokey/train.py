@@ -120,15 +120,16 @@ def encode(tokenizer, example: dict, max_candidates: int, max_length: int = 1024
 def candidate_log_probs(model, batch: list[Encoded]) -> list[torch.Tensor]:
     """例ごとに、候補の log P(候補 | 文脈, 入力) を並べたテンソルを返す。"""
     device = next(model.parameters()).device
-    rows = [s for e in batch for s in e.sequences]
+    per_example = [e.sequences for e in batch]
+    rows = [s for seqs in per_example for s in seqs]
     width = max(len(s) for s in rows)
     ids = torch.zeros((len(rows), width), dtype=torch.long)
     attention = torch.zeros((len(rows), width), dtype=torch.long)
     # 位置 p のトークンは、位置 p-1 の出力から確率を取る。候補の部分（start 以降）だけを数える
     counted = torch.zeros((len(rows), width - 1), dtype=torch.bool)
     i = 0
-    for e in batch:
-        for s in e.sequences:
+    for e, seqs in zip(batch, per_example):
+        for s in seqs:
             ids[i, : len(s)] = torch.tensor(s)
             attention[i, : len(s)] = 1
             counted[i, max(e.start, 1) - 1 : len(s) - 1] = True
@@ -238,28 +239,37 @@ def export_gguf(model_dir: Path, out: Path, outtype: str, llama_cpp: Path) -> No
     )
 
 
-def read_examples(path: Path):
-    """学習に使う例（aiokey.datagen の JSONL）を読む。`.gz` なら展開しながら読む（GPU サーバーのディスクが小さいので
+def _lines(path: Path):
+    """（行番号, 行）を返す。空の行は飛ばす。`.gz` なら展開しながら読む（GPU サーバーのディスクが小さいので
     圧縮したまま送って置く）。"""
     with (gzip.open(path, "rt", encoding="utf-8") if path.suffix == ".gz" else open(path, encoding="utf-8")) as f:
         for no, line in enumerate(f, 1):
-            if not line.strip():
-                continue
-            try:
-                e = json.loads(line)
-            except json.JSONDecodeError as err:
-                raise ValueError(f"{path}:{no}: {err}") from None
-            if not isinstance(e, dict):
-                raise ValueError(f"{path}:{no}: expected a JSON object")
-            missing = [k for k in ("input", "target", "candidates") if k not in e]
-            if missing:
-                raise ValueError(f"{path}:{no}: missing {', '.join(missing)}")
-            # 文脈はなくてもよい（null も空として扱う）
-            e["context"] = e.get("context") or ""
-            strings = [e["context"], e["input"], e["target"]]
-            if not isinstance(e["candidates"], list) or not all(isinstance(x, str) for x in strings + e["candidates"]):
-                raise ValueError(f"{path}:{no}: context, input, target and candidates must be strings")
-            yield e
+            if line.strip():
+                yield no, line
+
+
+def _parse_example(path: Path, no: int, line: str) -> dict:
+    try:
+        e = json.loads(line)
+    except json.JSONDecodeError as err:
+        raise ValueError(f"{path}:{no}: {err}") from None
+    if not isinstance(e, dict):
+        raise ValueError(f"{path}:{no}: expected a JSON object")
+    missing = [k for k in ("input", "target", "candidates") if k not in e]
+    if missing:
+        raise ValueError(f"{path}:{no}: missing {', '.join(missing)}")
+    # 文脈はなくてもよい（null も空として扱う）
+    e["context"] = e.get("context") or ""
+    strings = [e["context"], e["input"], e["target"]]
+    if not isinstance(e["candidates"], list) or not all(isinstance(x, str) for x in strings + e["candidates"]):
+        raise ValueError(f"{path}:{no}: context, input, target and candidates must be strings")
+    return e
+
+
+def read_examples(path: Path):
+    """学習に使う例（aiokey.datagen の JSONL）を読む。"""
+    for no, line in _lines(path):
+        yield _parse_example(path, no, line)
 
 
 def _encode_all(
@@ -270,10 +280,13 @@ def _encode_all(
     段階的に増やして伸びを見るとき。aiokey.datagen の出力はコーパスの順に並んでいるので、先頭からでは偏る）。"""
     examples = read_examples(path)
     if sample is not None:
-        # 数百万例をすべてメモリに読まないよう、1 回目は使える例の番号だけを数え、2 回目に選んだ例だけを読む
-        usable = [i for i, e in enumerate(read_examples(path)) if e.get("gold_in_stage1", True) or not only_in_stage1]
+        # 数百万例をすべてメモリに読まないよう、1 回目は使える行の番号だけを数え、2 回目に選んだ行だけを JSON にする。
+        # 1 回目は行の文字列だけを見る（148 万例を毎回 JSON にすると、段階ごとに数十分かかる）。aiokey.datagen は
+        # json.dumps の既定の区切りで書くので、正解が段1の候補にない例には必ずこの文字列がある
+        added = '"gold_in_stage1": false'
+        usable = [no for no, line in _lines(path) if not (only_in_stage1 and added in line)]
         chosen = set(random.Random(seed).sample(usable, min(sample, len(usable))))
-        examples = (e for i, e in enumerate(read_examples(path)) if i in chosen)
+        examples = (_parse_example(path, no, line) for no, line in _lines(path) if no in chosen)
     out = []
     for e in examples:
         if limit is not None and len(out) >= limit:
@@ -363,7 +376,10 @@ def run(args) -> dict:
         print(f"epoch {epoch + 1} step {step} dev {json.dumps(report)}", file=sys.stderr)
         loss = report.get("decision_loss")
         if loss is not None and loss == loss and (best["loss"] is None or loss < best["loss"]):
-            best.update(step=step, loss=loss, model={k: v.detach().cpu().clone() for k, v in model.state_dict().items()})
+            # 写しは、いちばんよかった時点に戻すとき（--eval-every か --patience を付けたとき）だけ持つ
+            keep = bool(args.eval_every or args.patience)
+            best.update(step=step, loss=loss,
+                        model={k: v.detach().cpu().clone() for k, v in model.state_dict().items()} if keep else None)
             stale = 0
         else:
             stale += 1
