@@ -112,7 +112,8 @@ def test_web_corpus_has_its_legal_basis_recorded_and_never_enters_the_repo_or_re
         assert item in legal, item
     for path in ["data/corpora/fineweb-2/000_00000.parquet", "data/corpora/articles/web.jsonl",
                  "target/examples/train.jsonl"]:
-        assert subprocess.run(["git", "check-ignore", "-q", path], cwd=ROOT).returncode == 0, path
+        # コンテナの中ではリポジトリの持ち主が違うので、safe.directory を付ける
+        assert subprocess.run(["git", "-c", "safe.directory=*", "check-ignore", "-q", path], cwd=ROOT).returncode == 0, path
     shipped = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     for installer in (ROOT / "installer").glob("*"):
         shipped += installer.read_text(encoding="utf-8", errors="ignore")

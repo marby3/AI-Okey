@@ -37,6 +37,37 @@ License: CC-BY-SA 4.0
 用途: 学習・評価データの生成に使うコーパス。
 
 --------------------------------------------------------------------------------
+Wikinews 日本語版
+https://ja.wikinews.org/
+License: CC-BY 4.0
+用途: 段2の学習データの生成に使うコーパス（#41。データそのものは配布物に含めない）。
+
+--------------------------------------------------------------------------------
+Tatoeba
+https://tatoeba.org/
+License: CC-BY 2.0 FR
+用途: 段2の学習データの生成に使うコーパス（#41。データそのものは配布物に含めない）。
+
+--------------------------------------------------------------------------------
+Common Voice（文の一覧）
+https://github.com/common-voice/common-voice
+License: CC0 1.0
+用途: 段2の学習データの生成に使うコーパス（#41。データそのものは配布物に含めない）。
+
+--------------------------------------------------------------------------------
+aozorabunko-clean（青空文庫を整えたデータ）
+https://huggingface.co/datasets/globis-university/aozorabunko-clean
+License: CC-BY 4.0（GLOBIS。元の作品は著作権の切れた青空文庫の作品）
+用途: 段2の学習データの生成に使うコーパス（#41。データそのものは配布物に含めない）。
+
+--------------------------------------------------------------------------------
+FineWeb-2
+https://huggingface.co/datasets/HuggingFaceFW/fineweb-2
+License: ODC-By 1.0（利用は Common Crawl の利用規約 https://commoncrawl.org/terms-of-use にも従う）
+用途: 段2の学習データの生成に使う Web のコーパス（#41）。文章の著作権は書いた人にあり、著作権法第三十条の四
+（情報解析）を根拠に使う（判断の記録は docs/training-data.md）。データそのものはリポジトリにも配布物にも含めない。
+
+--------------------------------------------------------------------------------
 llama.cpp
 https://github.com/ggml-org/llama.cpp
 License: MIT
@@ -48,6 +79,12 @@ https://github.com/WorksApplications/sudachi.rs
 https://github.com/WorksApplications/SudachiDict
 License: Apache-2.0
 用途: 学習・評価データの生成で、文に読みを付ける（配布物には含めない）。
+
+--------------------------------------------------------------------------------
+Apache Arrow（pyarrow）
+https://github.com/apache/arrow
+License: Apache-2.0
+用途: Web のコーパス（Parquet）を読む（配布物には含めない）。
 
 --------------------------------------------------------------------------------
 mwparserfromhell

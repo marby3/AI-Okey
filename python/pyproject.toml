@@ -10,6 +10,8 @@ license = "MIT"
 dynamic = ["version"]
 dependencies = [
   "mwparserfromhell==0.7.2",
+  # Web のコーパス（FineWeb-2 の Parquet）を読む（aiokey.sources）
+  "pyarrow==21.0.0",
   "sudachidict-core==20261015",
   "sudachipy==0.7.0",
 ]
