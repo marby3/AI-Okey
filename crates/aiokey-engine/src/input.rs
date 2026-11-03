@@ -53,6 +53,12 @@ pub struct InputLattice {
 const CONSONANTS: &str = "kstnhmyrwgzdbp";
 const VOWELS: &str = "aiueo";
 
+/// 文の途中に `/` があるか（あれば `/` を英語の指定とも「・」とも読むので、どちらにするかは段2が文脈で決める。#52）。
+/// 打ち始めの英語の語を閉じるだけの `/`（`/Python/wtkims`）も、「・」とも読むので含む。
+pub fn has_middle_slash(input: &str) -> bool {
+    input.chars().skip(1).any(|c| c == ENGLISH_PREFIX)
+}
+
 /// 打った文字列を入力ラティスにする。
 pub fn parse(input: &str) -> InputLattice {
     let chars: Vec<char> = input.chars().collect();
@@ -80,6 +86,14 @@ pub fn parse(input: &str) -> InputLattice {
                 .map_or(chars.len(), |p| i + 1 + p);
             let word: String = chars[i + 1..end].iter().collect();
             if !word.is_empty() {
+                // 次の `/` で終わるときは、その `/` を語の終わりとして含めた辺も張る（`/Python/wtkims` → Pythonを使います）
+                if chars.get(end) == Some(&ENGLISH_PREFIX) {
+                    edges.push(Edge {
+                        start: i,
+                        end: end + 1,
+                        unit: Unit::English(word.clone()),
+                    });
+                }
                 edges.push(Edge {
                     start: i,
                     end,

@@ -33,5 +33,7 @@ def test_generation_finds_an_answer_that_is_not_in_the_stage1_candidates(dict_pa
     scorer = aiokey.Scorer(str(STAGE2), "aiokey", 2, 64, temperature)
     target, input_ = "ジョン・F・ケネディ", "zyq/F/knd"
     assert target not in converter.convert(input_, 32)
-    generated = [surface for surface, _ in scorer.generate(converter, "", input_)]
+    # #52 で閉じる `/` を語の終わりとしても読むようになり、重み 0.5 では幅 8 のビームが「・」のない並びに流れる。
+    # 重み 0.25 は #40 の設定の探索で 0.5 と正解率が同じ（docs/eval/generation.md）
+    generated = [surface for surface, _ in scorer.generate(converter, "", input_, cost_weight=0.25)]
     assert target in generated

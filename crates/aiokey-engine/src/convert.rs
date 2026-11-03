@@ -11,7 +11,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use crate::dict::Dictionary;
-use crate::input::{parse, InputLattice, Unit, ENGLISH_PREFIX};
+use crate::input::{has_middle_slash, parse, InputLattice, Unit, ENGLISH_PREFIX};
 use crate::skeleton;
 
 /// 1 語がたどる入力の単位の上限。
@@ -81,6 +81,7 @@ pub struct Word {
 pub struct Candidate {
     pub surface: String,
     pub reading: String,
+    /// 段1のコスト。文の途中に `/` がある入力では、候補の並びはこの順とは限らない（[`convert`]）
     pub cost: i32,
     pub words: Vec<Word>,
     /// 文節ごとの入力の範囲（文字位置）
@@ -97,9 +98,16 @@ struct Node {
     lid: u16,
     rid: u16,
     cost: i32,
+    /// 文の途中の `/` の英語の指定（`/` を「・」とだけ読んで探すときは外す。#52）
+    middle_english: bool,
 }
 
-/// 入力を変換し、コストの低い順に最大 `options.k` 件の候補を返す。
+/// 入力を変換し、ふつうはコストの低い順に最大 `options.k` 件の候補を返す。
+///
+/// 文の途中に `/` があるときは、英語の指定ありで探した候補と、`/` を「・」とだけ読んで探した候補を、
+/// 英語の指定ありの 1 位から交互に並べる（英語の指定は `/` のあと全体を 1 語で覆って安く、そのままでは
+/// 「・」の候補が K 件に入らない。#52）。このときは並びがコストの順にならないので、段2が文脈で決める
+/// （[`crate::input::has_middle_slash`]）。
 pub fn convert(dict: &Dictionary, input: &str, options: &Options) -> Vec<Candidate> {
     let lattice = parse(input);
     if lattice.is_empty() || options.k == 0 {
@@ -107,8 +115,36 @@ pub fn convert(dict: &Dictionary, input: &str, options: &Options) -> Vec<Candida
     }
     let nodes = build_nodes(dict, &lattice);
     let mut candidates = search(dict, &nodes, lattice.len(), options.k);
+    if has_middle_slash(input) {
+        // 英語の指定の辺は辞書を引く道に入らず、辺ごとに語を 1 つ置くだけなので、その語を外せば「・」だけの読みになる
+        let dots: Vec<Node> = nodes.into_iter().filter(|n| !n.middle_english).collect();
+        candidates = interleave(
+            candidates,
+            search(dict, &dots, lattice.len(), options.k),
+            options.k,
+        );
+    }
     add_raw_input(input, lattice.len(), &mut candidates, options.k);
     candidates
+}
+
+/// 2 つの候補の並びを、`a` の 1 位から交互に並べる（同じ表記は先に出たほうだけ残す）。
+fn interleave(a: Vec<Candidate>, b: Vec<Candidate>, k: usize) -> Vec<Candidate> {
+    let mut seen = HashSet::new();
+    let (mut a, mut b) = (a.into_iter(), b.into_iter());
+    let mut out = Vec::with_capacity(k);
+    loop {
+        let (x, y) = (a.next(), b.next());
+        if x.is_none() && y.is_none() {
+            break;
+        }
+        for c in [x, y].into_iter().flatten() {
+            if out.len() < k && seen.insert(c.surface.clone()) {
+                out.push(c);
+            }
+        }
+    }
+    out
 }
 
 /// ラティスに置く語（段2で文を生成するときの制約に使う。#40）。`start..end` は入力の文字位置。
@@ -299,6 +335,7 @@ fn build_nodes(dict: &Dictionary, lattice: &InputLattice) -> Vec<Node> {
                     lid: e.lid,
                     rid: e.rid,
                     cost: e.cost as i32,
+                    middle_english: false,
                 });
                 placed += 1;
                 if placed >= MAX_ENTRIES_PER_SPAN {
@@ -315,6 +352,7 @@ fn build_nodes(dict: &Dictionary, lattice: &InputLattice) -> Vec<Node> {
 fn add_unknown_nodes(dict: &Dictionary, lattice: &InputLattice, nodes: &mut Vec<Node>) {
     let pos = dict.unknown_pos();
     for edge in lattice.edges() {
+        let middle_english = edge.start > 0 && matches!(edge.unit, Unit::English(_));
         let mut push = |text: String, cost: i32| {
             nodes.push(Node {
                 start: edge.start,
@@ -324,6 +362,7 @@ fn add_unknown_nodes(dict: &Dictionary, lattice: &InputLattice, nodes: &mut Vec<
                 lid: pos,
                 rid: pos,
                 cost,
+                middle_english,
             })
         };
         match &edge.unit {

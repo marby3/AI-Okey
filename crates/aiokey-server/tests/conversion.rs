@@ -262,6 +262,18 @@ async fn confident_stage1_skips_stage2() {
 }
 
 #[tokio::test]
+async fn input_with_a_middle_slash_always_goes_to_stage2() {
+    // #52 基準 2：文の途中の `/` があれば、英語の指定と「・」のどちらにするかを段1のコスト差にかかわらず段2で決める
+    let mut config = Config::default();
+    config.stage2.skip_cost_gap = 0;
+    let h = harness(config, Duration::ZERO);
+    append(&h.service, "aiqsytiq/rqgtybrms。").await;
+    assert!(latest(&h.service, 1000).await.reranked);
+    assert!(convert(&h.service).await.reranked);
+    assert!(!h.calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn idle_model_is_released_and_reloaded() {
     let mut config = always_stage2();
     config.stage2.unload_after = Duration::from_millis(200);
