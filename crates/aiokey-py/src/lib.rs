@@ -27,6 +27,12 @@ fn units(reading: &str) -> Vec<(String, Option<String>)> {
         .collect()
 }
 
+/// 文の途中に `/` があるか（あれば段1のコスト差にかかわらず段2で並べ替える。#52）。
+#[pyfunction]
+fn has_middle_slash(input: &str) -> bool {
+    aiokey_engine::input::has_middle_slash(input)
+}
+
 /// Mozc のデータ（`mozc_dir`）から辞書を作り、`out` に書く。
 #[pyfunction]
 fn build_dictionary(mozc_dir: &str, out: &str) -> PyResult<()> {
@@ -256,6 +262,7 @@ impl Scorer {
 fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(skeletonize, m)?)?;
     m.add_function(wrap_pyfunction!(units, m)?)?;
+    m.add_function(wrap_pyfunction!(has_middle_slash, m)?)?;
     m.add_function(wrap_pyfunction!(build_dictionary, m)?)?;
     m.add_function(wrap_pyfunction!(read_english_tsv, m)?)?;
     m.add_function(wrap_pyfunction!(build_prompt, m)?)?;

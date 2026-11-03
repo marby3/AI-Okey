@@ -11,7 +11,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use crate::dict::Dictionary;
-use crate::input::{parse, InputLattice, Unit, ENGLISH_PREFIX};
+use crate::input::{has_middle_slash, parse, parse_with, InputLattice, Unit, ENGLISH_PREFIX};
 use crate::skeleton;
 
 /// 1 語がたどる入力の単位の上限。
@@ -99,7 +99,12 @@ struct Node {
     cost: i32,
 }
 
-/// 入力を変換し、コストの低い順に最大 `options.k` 件の候補を返す。
+/// 入力を変換し、ふつうはコストの低い順に最大 `options.k` 件の候補を返す。
+///
+/// 文の途中に `/` があるときは、英語の指定ありで探した候補と、`/` を「・」とだけ読んで探した候補を、
+/// 英語の指定ありの 1 位から交互に並べる（英語の指定は `/` のあと全体を 1 語で覆って安く、そのままでは
+/// 「・」の候補が K 件に入らない。#52）。このときは並びがコストの順にならないので、段2が文脈で決める
+/// （[`crate::input::has_middle_slash`]）。
 pub fn convert(dict: &Dictionary, input: &str, options: &Options) -> Vec<Candidate> {
     let lattice = parse(input);
     if lattice.is_empty() || options.k == 0 {
@@ -107,8 +112,35 @@ pub fn convert(dict: &Dictionary, input: &str, options: &Options) -> Vec<Candida
     }
     let nodes = build_nodes(dict, &lattice);
     let mut candidates = search(dict, &nodes, lattice.len(), options.k);
+    if has_middle_slash(input) {
+        let dots = build_nodes(dict, &parse_with(input, false));
+        candidates = interleave(
+            candidates,
+            search(dict, &dots, lattice.len(), options.k),
+            options.k,
+        );
+    }
     add_raw_input(input, lattice.len(), &mut candidates, options.k);
     candidates
+}
+
+/// 2 つの候補の並びを、`a` の 1 位から交互に並べる（同じ表記は先に出たほうだけ残す）。
+fn interleave(a: Vec<Candidate>, b: Vec<Candidate>, k: usize) -> Vec<Candidate> {
+    let mut seen = HashSet::new();
+    let (mut a, mut b) = (a.into_iter(), b.into_iter());
+    let mut out = Vec::with_capacity(k);
+    loop {
+        let (x, y) = (a.next(), b.next());
+        if x.is_none() && y.is_none() {
+            break;
+        }
+        for c in [x, y].into_iter().flatten() {
+            if out.len() < k && seen.insert(c.surface.clone()) {
+                out.push(c);
+            }
+        }
+    }
+    out
 }
 
 /// ラティスに置く語（段2で文を生成するときの制約に使う。#40）。`start..end` は入力の文字位置。

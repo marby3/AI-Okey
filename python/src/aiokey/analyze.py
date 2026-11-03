@@ -9,7 +9,8 @@
 区切る）の 2 つの単位で、子音だけの入力と、母音をいくつか足した入力の両方を作る。
 
 `analyze` は、例をサーバーと同じ手順で変換する（段1の 1 位と 2 位のコスト差が `skip_cost_gap` 以上なら段1の
-並びのまま、迷うときは段1の上位 `max_candidates` 件を段2で並べ替える）。結果を JSON で出す：
+並びのまま、迷うときと文の途中に `/` があるときは段1の上位 `max_candidates` 件を段2で並べ替える）。
+結果を JSON で出す：
 
 - measures：単位（文・句）と入力（子音だけ・母音あり）ごとの完全一致（1 位）、候補ウィンドウの 1 ページ目
   （9 件）、段1の候補（K 件）に入る割合、1 位の文字の一致率
@@ -30,6 +31,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable, Iterator
 
+from aiokey import has_middle_slash
 from aiokey import reading as rd
 from aiokey.datagen import VOWEL_PER_KANA
 
@@ -142,11 +144,15 @@ class Analyzer:
         # reading.Annotator と同じ辞書と分割単位
         self._tokenizer = Dictionary(dict="core").tokenizer(mode=SplitMode.C)
 
+    def uncertain(self, input_: str, c: list) -> bool:
+        """段2で並べ替えるか（サーバーと同じ：段1が迷っているか、文の途中に / がある）。"""
+        return has_middle_slash(input_) or c[1][2] - c[0][2] < self.skip_cost_gap
+
     def rank(self, e: dict) -> dict:
         """サーバーと同じ手順で並べた候補と、正解の順位を返す。"""
         c = self.converter.convert_with_costs(e["input"], self.k)
         order = list(range(len(c)))
-        if self.scorer is not None and len(c) >= 2 and c[1][2] - c[0][2] < self.skip_cost_gap:
+        if self.scorer is not None and len(c) >= 2 and self.uncertain(e["input"], c):
             n = min(len(c), self.max_candidates)
             probs, _ = self.scorer.score(e.get("context", ""), e["input"], [(s, r) for s, r, _ in c[:n]])
             order = sorted(range(len(probs)), key=lambda i: -probs[i]) + list(range(len(probs), len(c)))
@@ -280,7 +286,7 @@ class Generator:
         a = self.analyzer
         c = a.converter.convert_with_costs(e["input"], a.k)
         stage1 = [s for s, _, _ in c]
-        if len(c) < 2 or c[1][2] - c[0][2] >= a.skip_cost_gap:
+        if len(c) < 2 or not a.uncertain(e["input"], c):
             return stage1
         pool = list(dict.fromkeys(stage1[: a.max_candidates] + self.generate(e)))
         probs, _ = a.scorer.score(e.get("context", ""), e["input"], [(s, s) for s in pool])

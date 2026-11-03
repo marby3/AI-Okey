@@ -4,7 +4,8 @@
 //! 段2（AI 採点器）は裏で動かす。PC の負荷を抑えるため、段2は次のときだけ動かす。
 //!
 //! - キー入力が `debounce` のあいだ止まったとき、と変換キー（`Convert`）のとき
-//! - 段1の 1 位と 2 位のコスト差が `skip_cost_gap` より小さい（段1が迷っている）とき
+//! - 段1の 1 位と 2 位のコスト差が `skip_cost_gap` より小さい（段1が迷っている）とき。文の途中に `/` があるときは、
+//!   英語の指定と「・」のどちらにするかを決めるので、コスト差にかかわらず動かす（#52）
 //!
 //! 段2の結果は、入力の番号（revision）が採点を始めたときと同じときだけ使い、古い入力の結果は捨てる。
 //! 段2のモデルは `unload_after` のあいだ使わなければ解放し、次に要るときに読み込み直す。
@@ -14,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use aiokey_engine::convert::{convert, Candidate, Options};
 use aiokey_engine::dict::Dictionary;
+use aiokey_engine::input::has_middle_slash;
 use aiokey_ipc::proto::{
     aiokey_service_server::AiokeyService, AppendTextRequest, AppendTextResponse, ClearTextRequest,
     ClearTextResponse, ComposingText, ConvertRequest, ConvertResponse, GetComposingTextRequest,
@@ -312,8 +314,11 @@ async fn run_stage2(inner: &Arc<Inner>, revision: u64) {
             return;
         }
         let c = &session.candidates;
-        let confident =
-            c.len() < 2 || c[1].cost.saturating_sub(c[0].cost) >= inner.config.stage2.skip_cost_gap;
+        let input: String = session.input[..session.cursor].iter().collect();
+        // 文の途中の `/` は英語の指定とも「・」とも読み、候補はコストの順に並ばないので、段2が文脈で決める（#52）
+        let confident = !has_middle_slash(&input)
+            && (c.len() < 2
+                || c[1].cost.saturating_sub(c[0].cost) >= inner.config.stage2.skip_cost_gap);
         if confident {
             session.settled = true;
             let _ = inner.settled.send(revision);
@@ -324,7 +329,6 @@ async fn run_stage2(inner: &Arc<Inner>, revision: u64) {
             .iter()
             .map(|c| (c.surface.clone(), c.reading.clone()))
             .collect();
-        let input: String = session.input[..session.cursor].iter().collect();
         session.scoring = Some(revision);
         (session.context.clone(), input, pairs)
     };
