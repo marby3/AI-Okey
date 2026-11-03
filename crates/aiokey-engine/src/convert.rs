@@ -11,7 +11,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use crate::dict::Dictionary;
-use crate::input::{has_middle_slash, parse, parse_with, InputLattice, Unit, ENGLISH_PREFIX};
+use crate::input::{has_middle_slash, parse, InputLattice, Unit, ENGLISH_PREFIX};
 use crate::skeleton;
 
 /// 1 語がたどる入力の単位の上限。
@@ -81,6 +81,7 @@ pub struct Word {
 pub struct Candidate {
     pub surface: String,
     pub reading: String,
+    /// 段1のコスト。文の途中に `/` がある入力では、候補の並びはこの順とは限らない（[`convert`]）
     pub cost: i32,
     pub words: Vec<Word>,
     /// 文節ごとの入力の範囲（文字位置）
@@ -97,6 +98,8 @@ struct Node {
     lid: u16,
     rid: u16,
     cost: i32,
+    /// 文の途中の `/` の英語の指定（`/` を「・」とだけ読んで探すときは外す。#52）
+    middle_english: bool,
 }
 
 /// 入力を変換し、ふつうはコストの低い順に最大 `options.k` 件の候補を返す。
@@ -113,7 +116,8 @@ pub fn convert(dict: &Dictionary, input: &str, options: &Options) -> Vec<Candida
     let nodes = build_nodes(dict, &lattice);
     let mut candidates = search(dict, &nodes, lattice.len(), options.k);
     if has_middle_slash(input) {
-        let dots = build_nodes(dict, &parse_with(input, false));
+        // 英語の指定の辺は辞書を引く道に入らず、辺ごとに語を 1 つ置くだけなので、その語を外せば「・」だけの読みになる
+        let dots: Vec<Node> = nodes.into_iter().filter(|n| !n.middle_english).collect();
         candidates = interleave(
             candidates,
             search(dict, &dots, lattice.len(), options.k),
@@ -331,6 +335,7 @@ fn build_nodes(dict: &Dictionary, lattice: &InputLattice) -> Vec<Node> {
                     lid: e.lid,
                     rid: e.rid,
                     cost: e.cost as i32,
+                    middle_english: false,
                 });
                 placed += 1;
                 if placed >= MAX_ENTRIES_PER_SPAN {
@@ -347,6 +352,7 @@ fn build_nodes(dict: &Dictionary, lattice: &InputLattice) -> Vec<Node> {
 fn add_unknown_nodes(dict: &Dictionary, lattice: &InputLattice, nodes: &mut Vec<Node>) {
     let pos = dict.unknown_pos();
     for edge in lattice.edges() {
+        let middle_english = edge.start > 0 && matches!(edge.unit, Unit::English(_));
         let mut push = |text: String, cost: i32| {
             nodes.push(Node {
                 start: edge.start,
@@ -356,6 +362,7 @@ fn add_unknown_nodes(dict: &Dictionary, lattice: &InputLattice, nodes: &mut Vec<
                 lid: pos,
                 rid: pos,
                 cost,
+                middle_english,
             })
         };
         match &edge.unit {

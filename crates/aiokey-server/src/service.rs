@@ -316,9 +316,9 @@ async fn run_stage2(inner: &Arc<Inner>, revision: u64) {
         let c = &session.candidates;
         let input: String = session.input[..session.cursor].iter().collect();
         // 文の途中の `/` は英語の指定とも「・」とも読み、候補はコストの順に並ばないので、段2が文脈で決める（#52）
-        let confident = !has_middle_slash(&input)
-            && (c.len() < 2
-                || c[1].cost.saturating_sub(c[0].cost) >= inner.config.stage2.skip_cost_gap);
+        let confident = c.len() < 2
+            || (!has_middle_slash(&input)
+                && c[1].cost.saturating_sub(c[0].cost) >= inner.config.stage2.skip_cost_gap);
         if confident {
             session.settled = true;
             let _ = inner.settled.send(revision);

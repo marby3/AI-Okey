@@ -53,19 +53,14 @@ pub struct InputLattice {
 const CONSONANTS: &str = "kstnhmyrwgzdbp";
 const VOWELS: &str = "aiueo";
 
-/// 打った文字列を入力ラティスにする。
-pub fn parse(input: &str) -> InputLattice {
-    parse_with(input, true)
-}
-
 /// 文の途中に `/` があるか（あれば `/` を英語の指定とも「・」とも読むので、どちらにするかは段2が文脈で決める。#52）。
+/// 打ち始めの英語の語を閉じるだけの `/`（`/Python/wtkims`）も、「・」とも読むので含む。
 pub fn has_middle_slash(input: &str) -> bool {
     input.chars().skip(1).any(|c| c == ENGLISH_PREFIX)
 }
 
-/// 入力ラティスにする。`middle_english` が偽なら、文の途中の `/` を「・」とだけ読む
-/// （英語の指定の読みは `/` のあと全体を 1 語で覆って安いので、「・」の読みを別に探すときに使う。#52）。
-pub fn parse_with(input: &str, middle_english: bool) -> InputLattice {
+/// 打った文字列を入力ラティスにする。
+pub fn parse(input: &str) -> InputLattice {
     let chars: Vec<char> = input.chars().collect();
     let mut edges = Vec::new();
     let mut i = 0;
@@ -90,7 +85,7 @@ pub fn parse_with(input: &str, middle_english: bool) -> InputLattice {
                 .position(|&c| c == SEPARATOR || c == ENGLISH_PREFIX)
                 .map_or(chars.len(), |p| i + 1 + p);
             let word: String = chars[i + 1..end].iter().collect();
-            if !word.is_empty() && (i == 0 || middle_english) {
+            if !word.is_empty() {
                 // 次の `/` で終わるときは、その `/` を語の終わりとして含めた辺も張る（`/Python/wtkims` → Pythonを使います）
                 if chars.get(end) == Some(&ENGLISH_PREFIX) {
                     edges.push(Edge {
