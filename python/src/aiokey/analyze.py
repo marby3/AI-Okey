@@ -15,6 +15,8 @@
   （9 件）、段1の候補（K 件）に入る割合、1 位の文字の一致率
 - errors：誤りを「候補に正解がない」「候補にあるが 1 位でない」に分け、原因（辞書にない語、固有名詞・カタカナ語、
   数字、英字、読みの違い・表記の違い）ごとの割合と、文の長さごとの誤りの割合
+
+`compare` は、段2で文を生成する方式（#40 の試作）と今の方式を、同じ例で比べる（`compare()`）。
 """
 
 from __future__ import annotations
@@ -22,6 +24,8 @@ from __future__ import annotations
 import json
 import random
 import re
+import statistics
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Iterable, Iterator
@@ -251,3 +255,136 @@ def analyze(examples: Iterable[dict], analyzer: Analyzer) -> tuple[dict, list[di
                                  for k, c in lengths.items()},
     }
     return report, rows
+
+
+# #40：比べる方式
+METHODS = {"current": "今の方式", "generate": "生成だけ", "combined": "合わせた"}
+
+
+class Generator:
+    """段2で文を生成する方式（#40 の試作）。Analyzer の変換器と採点器を使う。"""
+
+    def __init__(self, analyzer: Analyzer, beam: int = 8, cost_weight: float = 0.5):
+        self.analyzer = analyzer
+        self.beam = beam
+        self.cost_weight = cost_weight
+
+    def generate(self, e: dict) -> list[str]:
+        a = self.analyzer
+        out = a.scorer.generate(a.converter, e.get("context", ""), e["input"], self.beam, self.cost_weight)
+        return [s for s, _ in out]
+
+    def combined(self, e: dict) -> list[str]:
+        """段1が迷わないときは今の方式のまま。迷うときは、段1の上位と生成の候補を合わせて段2で並べ、
+        残りの段1の候補を後ろにつなぐ。"""
+        a = self.analyzer
+        c = a.converter.convert_with_costs(e["input"], a.k)
+        stage1 = [s for s, _, _ in c]
+        if len(c) < 2 or c[1][2] - c[0][2] >= a.skip_cost_gap:
+            return stage1
+        pool = list(dict.fromkeys(stage1[: a.max_candidates] + self.generate(e)))
+        probs, _ = a.scorer.score(e.get("context", ""), e["input"], [(s, s) for s in pool])
+        ranked = [pool[i] for i in sorted(range(len(pool)), key=lambda i: -probs[i])]
+        return ranked + [s for s in stage1 if s not in pool]
+
+    def candidates(self, e: dict, method: str) -> list[str]:
+        if method == "current":
+            return self.analyzer.rank(e)["surfaces"]
+        if method == "generate":
+            return self.generate(e)
+        if method == "combined":
+            return self.combined(e)
+        raise ValueError(f"unknown method: {method}")
+
+
+def percentile(values: list[float], q: int) -> float:
+    return statistics.quantiles(values, n=100, method="inclusive")[q - 1] if len(values) > 1 else values[0]
+
+
+def compare(examples: Iterable[dict], generator: Generator, methods: Iterable[str] = METHODS) -> tuple[dict, list[dict]]:
+    """方式ごと・単位と入力ごとに、完全一致・1 ページ目・候補に正解がある割合と、1 回の変換の時間（ms）を返す。"""
+    methods = list(methods)
+    measures: dict[str, dict[str, Counter]] = {m: {} for m in methods}
+    times: dict[str, dict[str, list[float]]] = {m: {} for m in methods}
+    rows = []
+    for e in examples:
+        key = f"{e.get('unit', 'sentence')}/{'vowels' if e.get('vowels_kept') else 'consonants'}"
+        row = {k: e.get(k) for k in ("set", "id", "unit", "context", "input", "target", "vowels_kept")}
+        for method in methods:
+            started = time.perf_counter()
+            surfaces = generator.candidates(e, method)
+            times[method].setdefault(key, []).append((time.perf_counter() - started) * 1000)
+            rank = surfaces.index(e["target"]) + 1 if e["target"] in surfaces else None
+            m = measures[method].setdefault(key, Counter())
+            m["examples"] += 1
+            m["top1"] += rank == 1
+            m["page1"] += rank is not None and rank <= PAGE
+            m["in_candidates"] += rank is not None
+            row[method] = {"rank": rank, "top": surfaces[:PAGE]}
+        rows.append(row)
+    report = {
+        method: {
+            key: {
+                "examples": m["examples"],
+                "top1": m["top1"] / m["examples"],
+                "page1": m["page1"] / m["examples"],
+                "in_candidates": m["in_candidates"] / m["examples"],
+                "ms_p50": percentile(times[method][key], 50),
+                "ms_p95": percentile(times[method][key], 95),
+            }
+            for key, m in sorted(measures[method].items())
+        }
+        for method in methods
+    }
+    return report, rows
+
+
+COST_PER_NAT = 500  # 段1のコストを log P（自然対数）に直すときの割る数（generate.rs と同じ）
+
+
+def path_cost(converter, input_: str, surface: str) -> int | None:
+    """表記を段1のラティスの語の並びでつくるときの、語のコストの和の最小。つくれなければ None。"""
+    n, words = converter.lattice_words(input_)
+    by_start: dict[int, list] = {}
+    for start, end, s, cost in words:
+        by_start.setdefault(start, []).append((end, s, cost))
+    best: dict[int, dict[int, int]] = {0: {0: 0}}
+    for pos in range(n):
+        for k, cost in best.get(pos, {}).items():
+            for end, s, c in by_start.get(pos, ()):
+                if end > pos and surface.startswith(s, k):
+                    nxt = best.setdefault(end, {})
+                    nxt[k + len(s)] = min(nxt.get(k + len(s), cost + c), cost + c)
+    return best.get(n, {}).get(len(surface))
+
+
+def generation_errors(rows: Iterable[dict], generator: Generator) -> Counter:
+    """生成が外れた理由を数える。並べる値はビームサーチと同じ（段2の log P − 重み × 段1のコスト ÷ 500）。
+
+    - ok：生成の 1 位が正解
+    - unreachable：正解がラティスの語の並びでつくれない（制約で出せない）
+    - search_error：正解の並べる値のほうが生成の 1 位より高い（ビームサーチで落ちた）
+    - model_error：生成の 1 位の並べる値のほうが高い（並べる値が正解を選ばない）
+    """
+    a = generator.analyzer
+    out: Counter = Counter()
+    for r in rows:
+        g = r.get("generate")
+        if g is None:
+            continue
+        if g["rank"] == 1:
+            out["ok"] += 1
+            continue
+        target_cost = path_cost(a.converter, r["input"], r["target"])
+        if target_cost is None:
+            out["unreachable"] += 1
+            continue
+        if not g["top"]:
+            out["search_error"] += 1
+            continue
+        top = g["top"][0]
+        log_p = a.scorer.log_probs(r.get("context") or "", r["input"], [(r["target"], ""), (top, "")])
+        costs = [target_cost, path_cost(a.converter, r["input"], top) or 0]
+        score = [lp - generator.cost_weight * c / COST_PER_NAT for lp, c in zip(log_p, costs)]
+        out["search_error" if score[0] > score[1] else "model_error"] += 1
+    return out

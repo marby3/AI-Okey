@@ -5,8 +5,9 @@ use std::path::Path;
 
 use std::sync::Mutex;
 
-use aiokey_engine::convert::{convert, Options};
+use aiokey_engine::convert::{convert, lattice_words, Options};
 use aiokey_engine::dict::Dictionary;
+use aiokey_scorer::generate::{Constraint, GenerateOptions, Word};
 use aiokey_scorer::{Config, PromptFormat, Request, Scorer as ScorerImpl, Scores};
 use pyo3::exceptions::{PyOSError, PyValueError};
 use pyo3::prelude::*;
@@ -87,6 +88,18 @@ impl Converter {
         })
     }
 
+    /// 入力の長さと、段1のラティスに置く語の (開始位置, 終了位置, 表記, コスト) を返す（#40 の分析用）。
+    fn lattice_words(&self, input: &str) -> (usize, Vec<(usize, usize, String, i32)>) {
+        let (len, words) = lattice_words(&self.dict, input);
+        (
+            len,
+            words
+                .into_iter()
+                .map(|w| (w.start, w.end, w.surface, w.cost))
+                .collect(),
+        )
+    }
+
     /// 上位 `k` 件の候補の表記を、コストの低い順に返す。
     #[pyo3(signature = (input, k = 32))]
     fn convert(&self, py: Python<'_>, input: &str, k: usize) -> Vec<String> {
@@ -160,6 +173,45 @@ impl Scorer {
     ) -> PyResult<(Vec<f32>, f32)> {
         let scores = self.run(py, context, input, candidates)?;
         Ok((scores.probs, scores.margin))
+    }
+
+    /// 段1のラティスの語で制約して、入力に合う文を生成する（#40 の試作）。
+    /// (表記, 並べる値＝段2の log P − cost_weight × 段1のコスト ÷ 500) を高い順に返す。
+    #[pyo3(signature = (converter, context, input, beam = 8, cost_weight = 0.5))]
+    fn generate(
+        &self,
+        py: Python<'_>,
+        converter: &Converter,
+        context: &str,
+        input: &str,
+        beam: usize,
+        cost_weight: f32,
+    ) -> PyResult<Vec<(String, f32)>> {
+        py.allow_threads(|| {
+            let (len, words) = lattice_words(&converter.dict, input);
+            let words: Vec<Word> = words
+                .iter()
+                .map(|w| Word {
+                    start: w.start,
+                    end: w.end,
+                    surface: &w.surface,
+                    cost: w.cost,
+                })
+                .collect();
+            let constraint = Constraint::new(len, &words);
+            let mut inner = self
+                .inner
+                .lock()
+                .map_err(|_| PyValueError::new_err("scorer is poisoned"))?;
+            inner
+                .generate(
+                    context,
+                    input,
+                    &constraint,
+                    &GenerateOptions { beam, cost_weight },
+                )
+                .map_err(PyValueError::new_err)
+        })
     }
 
     /// 候補ごとの log P(候補 | 文脈, 入力) を返す（温度をかける前の値。学習側との答え合わせ用）。
