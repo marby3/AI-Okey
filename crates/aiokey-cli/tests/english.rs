@@ -123,3 +123,27 @@ fn english_and_middle_dot_candidates_are_both_near_the_top() {
     let rank = s.iter().position(|c| c.surface == "ジョン・F・ケネディ");
     eprintln!("zyq/F/knd: ジョン・F・ケネディ は {:?} 位（1 始まり、K=3000）", rank.map(|r| r + 1));
 }
+
+// #52 基準 1：`/` のあとが長くても、英語の指定と「・」の候補がどちらも上位 5 件に入り、1 位は英語の指定
+#[test]
+fn middle_dot_candidates_stay_near_the_top_after_a_long_tail() {
+    for (input, word) in [
+        ("prnxt/niqth、", "niqth"),
+        ("aiqsytiq/rqgtybrms。", "rqgtybrms"),
+        ("zyq/F/knd", "F"),
+        ("htst/hqt", "hqt"),
+        ("htst/keyboard", "keyboard"),
+    ] {
+        let s = surfaces(input);
+        let top: Vec<_> = s.iter().take(5).collect();
+        assert!(top[0].contains(word) && !top[0].contains('・'), "{input}: {top:?}");
+        assert!(top.iter().any(|x| x.contains('・')), "{input}: {top:?}");
+    }
+}
+
+// #52 基準 3：英語の語を閉じる `/` は、語の終わりとしても読む
+#[test]
+fn slash_closing_an_english_word_can_just_end_it() {
+    let s = surfaces("wtsh/Python/wtkims");
+    assert!(s.iter().any(|x| x == "私はPythonを使います"), "{s:?}");
+}
