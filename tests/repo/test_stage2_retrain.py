@@ -81,12 +81,12 @@ def test_context_difference_is_recorded_and_can_be_measured(tmp_path):
 
 
 def test_shipped_model_follows_the_decision_rule():
-    # 基準 4：ATC 2026 の句・子音だけで B が上がり A が下がらなければ入れ替える。そうでなければ入れ替えず、理由を記録する
+    # 基準 4：ATC 2026 の句・子音だけで A が上がり B が下がらなければ入れ替える。そうでなければ入れ替えず、理由を記録する
     row = next(r for r in rows(section("今のモデルとの比較")) if r[0] == "ATC 2026 句・子音だけ")
     a_before, a_after, b_before, b_after = (percent(c) for c in row[1:5])
     decision = section("判断")
     script = (ROOT / "scripts/fetch-stage2-model.sh").read_text(encoding="utf-8")
-    if b_after > b_before and a_after >= a_before:
+    if a_after > a_before and b_after >= b_before:
         assert "入れ替える" in decision
         assert re.search(r'^MODEL_TAG="stage2-model-v2"$', script, re.M)
     else:
