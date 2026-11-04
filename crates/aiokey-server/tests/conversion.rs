@@ -396,18 +396,12 @@ fn broken_config_falls_back_to_defaults_with_a_warning() {
 #[tokio::test]
 async fn server_uses_the_ngram_rerank_and_judges_skipping_stage2_after_it() {
     // #58 基準 4：サーバーと評価（aiokey.Converter）は同じ並べ替えを使い、段2を飛ばす判定は並べ替えのあとの 1 位と 2 位で行う
-    use aiokey_engine::convert::{convert_reranked, Options, Rerank};
+    use aiokey_engine::convert::{convert_reranked, Options};
     use aiokey_engine::ngram::{to_bytes, Ngram};
 
     let entries = vec![("ふ".to_string(), 1), ("と".to_string(), 1)];
     let ngram = Arc::new(Ngram::from_bytes(to_bytes(entries, 1000).unwrap()).unwrap());
-    let settings = Config::default().ngram;
-    let rerank = Rerank {
-        ngram: &ngram,
-        pool: settings.pool,
-        cost_per_nat: settings.cost_per_nat,
-        max_entries_per_span: settings.max_entries_per_span,
-    };
+    let rerank = Config::default().ngram.rerank(&ngram);
     // 配布物の隣にある表を既定で使い、無効にすれば使わない（#58 基準 7）
     let dir = std::env::temp_dir().join(format!("aiokey-ngram-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

@@ -5,7 +5,10 @@ use std::path::Path;
 
 use std::sync::Mutex;
 
-use aiokey_engine::convert::{convert_reranked, lattice_words, Options, Rerank};
+use aiokey_engine::convert::{
+    convert_reranked, lattice_words, Options, Rerank, DEFAULT_COST_PER_NAT,
+    DEFAULT_MAX_ENTRIES_PER_SPAN, DEFAULT_POOL,
+};
 use aiokey_engine::dict::Dictionary;
 use aiokey_engine::ngram::{self, Ngram as Table};
 use aiokey_scorer::generate::{Constraint, GenerateOptions, Word};
@@ -101,7 +104,10 @@ impl Converter {
 #[pymethods]
 impl Converter {
     #[new]
-    #[pyo3(signature = (path, ngram = None, pool = 128, cost_per_nat = 250, max_entries_per_span = 80))]
+    #[pyo3(signature = (
+        path, ngram = None, pool = DEFAULT_POOL, cost_per_nat = DEFAULT_COST_PER_NAT,
+        max_entries_per_span = DEFAULT_MAX_ENTRIES_PER_SPAN
+    ))]
     fn new(
         path: &str,
         ngram: Option<&str>,

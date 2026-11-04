@@ -24,9 +24,10 @@ fn dictionary() -> &'static Dictionary {
     })
 }
 
-/// 「ふ」の続きを安くする表（段1の 1 位は「果たして」、「ふとした」が後ろにいる入力で試す）
+/// 「ふ」「と」を安くする表（`htst` の段1の 1 位は「果たして」で、この 2 文字を含まない）。
+/// 「・」も安いので、並べ替えだけなら「・」の候補が英語の指定の候補より前に出る
 fn table() -> Ngram {
-    let entries = vec![("ふ".to_string(), 1), ("と".to_string(), 1)];
+    let entries = ["ふ", "と", "・"].map(|c| (c.to_string(), 1)).to_vec();
     Ngram::from_bytes(to_bytes(entries, 1000).unwrap()).unwrap()
 }
 
@@ -56,6 +57,11 @@ fn candidates_are_reranked_by_cost_and_ngram_and_keep_the_required_ones() {
         assert_eq!(surfaces(input, 32, None), plain, "{input}");
     }
 
+    // n-gram のコストが低い候補が上がる
+    assert_eq!(surfaces("htst", 32, None)[0], "果たして");
+    let top = surfaces("htst", 32, Some(&rerank)).remove(0);
+    assert!(ngram.cost(&top) < ngram.cost("果たして"), "{top}");
+
     // 上位 N 件を探してから並べ替え、上位 K 件を返す：32 件の外の候補も先頭に上がれる
     let plain = surfaces("htsthqtun", 128, None);
     let reranked = surfaces("htsthqtun", 32, Some(&rerank));
@@ -70,12 +76,10 @@ fn candidates_are_reranked_by_cost_and_ngram_and_keep_the_required_ones() {
     // 打った入力そのものの候補は必ず残る
     assert!(reranked.iter().any(|s| s == "htsthqtun"));
 
-    // 文の途中の `/` では、英語の指定と「・」の候補がどちらも上位 5 件に入る（#47、#52）
+    // 文の途中の `/` では、段1の 1 位は今までどおり英語の指定で、「・」の候補も上位 5 件に入る（#47、#52）
     let slash = surfaces("htst/hqt", 32, Some(&rerank));
     assert!(
-        slash[..5]
-            .iter()
-            .any(|s| s.contains("hqt") && !s.contains('・')),
+        slash[0].contains("hqt") && !slash[0].contains('・'),
         "{slash:?}"
     );
     assert!(slash[..5].iter().any(|s| s.contains('・')), "{slash:?}");

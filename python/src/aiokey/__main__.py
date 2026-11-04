@@ -55,9 +55,9 @@ def main(argv: list[str] | None = None) -> int:
     an.add_argument("--max-candidates", type=int, help="段2に渡す候補の数。省くとサーバーの既定と同じ")
     an.add_argument("--rows", type=Path, help="例ごとの結果（JSONL）を書く先")
     an.add_argument("--ngram", type=Path, help="文字 n-gram の表。渡すと段1の候補を並べ替える（省くと今の並び）")
-    an.add_argument("--ngram-pool", type=int, default=128, help="並べ替える前に探す候補の数（N）")
-    an.add_argument("--ngram-cost-per-nat", type=int, default=250, help="n-gram の 1 ナットを足す段1のコスト（重み）")
-    an.add_argument("--ngram-max-entries", type=int, default=80, help="並べ替えるときの 1 区間の語の上限")
+    an.add_argument("--ngram-pool", type=int, help="並べ替える前に探す候補の数（N）。省くとサーバーの既定と同じ")
+    an.add_argument("--ngram-cost-per-nat", type=int, help="n-gram の 1 ナットを足す段1のコスト（重み）。省くとサーバーの既定と同じ")
+    an.add_argument("--ngram-max-entries", type=int, help="並べ替えるときの 1 区間の語の上限。省くとサーバーの既定と同じ")
     an.add_argument("--skip-cost-gap", type=int, help="段2を飛ばす 1 位と 2 位のコスト差。省くとサーバーの既定と同じ")
     ng = sub.add_parser("ngram", help="段1の並べ替えに使う文字 n-gram の表を作る（#58）")
     ng.add_argument("--articles", type=Path, nargs="+", required=True, help="記事の JSONL。train の記事だけを数える")
@@ -151,9 +151,12 @@ def _analyze(args) -> int:
         scorer = Scorer(str(args.scorer), "aiokey", args.threads, max_candidates, _temperature(args))
     with open(args.examples, encoding="utf-8") as f:
         examples = [json.loads(line) for line in f if line.strip()]
-    converter = Converter(str(args.dict), str(args.ngram) if args.ngram else None, args.ngram_pool,
-                          args.ngram_cost_per_nat, args.ngram_max_entries)
-    report, rows = analyze(examples, Analyzer(converter, scorer, skip_cost_gap=args.skip_cost_gap or SKIP_COST_GAP,
+    settings = {"pool": args.ngram_pool, "cost_per_nat": args.ngram_cost_per_nat,
+                "max_entries_per_span": args.ngram_max_entries}
+    converter = Converter(str(args.dict), str(args.ngram) if args.ngram else None,
+                          **{k: v for k, v in settings.items() if v is not None})
+    skip_cost_gap = SKIP_COST_GAP if args.skip_cost_gap is None else args.skip_cost_gap
+    report, rows = analyze(examples, Analyzer(converter, scorer, skip_cost_gap=skip_cost_gap,
                                               max_candidates=max_candidates, use_context=not args.no_context))
     if args.rows:
         with open(args.rows, "w", encoding="utf-8") as f:

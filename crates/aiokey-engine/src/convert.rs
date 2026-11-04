@@ -71,7 +71,12 @@ impl Default for Options {
     }
 }
 
-/// 文字 n-gram で候補を並べ替える設定（#58）。値の根拠は docs/eval/stage1-ngram.md。
+/// [`Rerank`] の既定値（dev で選んだ。根拠は docs/eval/stage1-ngram.md）。
+pub const DEFAULT_POOL: usize = 128;
+pub const DEFAULT_COST_PER_NAT: i32 = 250;
+pub const DEFAULT_MAX_ENTRIES_PER_SPAN: usize = 80;
+
+/// 文字 n-gram で候補を並べ替える設定（#58）。
 #[derive(Debug, Clone, Copy)]
 pub struct Rerank<'a> {
     pub ngram: &'a Ngram,
@@ -128,7 +133,8 @@ pub fn convert(dict: &Dictionary, input: &str, options: &Options) -> Vec<Candida
 }
 
 /// [`convert`] と同じで、`rerank` があれば上位 N 件を文字 n-gram とコストで並べ替えてから上位 K 件を残す。
-/// 文の途中に `/` があるときは、英語の指定ありと「・」だけの候補をそれぞれ並べ替えてから交互に並べる。
+/// 文の途中に `/` があるときは、英語の指定ありの探索の 1 位を先頭に固定して（#52。英字は n-gram のコストが高く、
+/// 「・」の候補に抜かれる）、残りと「・」だけの探索をそれぞれ並べ替えてから交互に並べる。
 pub fn convert_reranked(
     dict: &Dictionary,
     input: &str,
@@ -141,29 +147,40 @@ pub fn convert_reranked(
     }
     let max_entries = rerank.map_or(MAX_ENTRIES_PER_SPAN, |r| r.max_entries_per_span);
     let nodes = build_nodes(dict, &lattice, max_entries);
-    let find = |nodes: &[Node]| match rerank {
+    let middle_slash = has_middle_slash(input);
+    let find = |nodes: &[Node], keep_first: bool| match rerank {
         None => search(dict, nodes, lattice.len(), options.k),
-        Some(r) => {
-            let pool = r.pool.max(options.k);
-            let mut found = search(dict, nodes, lattice.len(), pool);
-            for c in &mut found {
-                let nats = r.ngram.cost(&c.surface).min(i32::MAX as u64) as i64;
-                let extra = nats * r.cost_per_nat as i64 / 100;
-                c.cost = (c.cost as i64 + extra).min(i32::MAX as i64) as i32;
-            }
-            found.sort_by_key(|c| c.cost);
-            found.truncate(options.k);
-            found
-        }
+        Some(r) => reranked(dict, nodes, lattice.len(), options.k, r, keep_first),
     };
-    let mut candidates = find(&nodes);
-    if has_middle_slash(input) {
+    let mut candidates = find(&nodes, middle_slash);
+    if middle_slash {
         // 英語の指定の辺は辞書を引く道に入らず、辺ごとに語を 1 つ置くだけなので、その語を外せば「・」だけの読みになる
         let dots: Vec<Node> = nodes.into_iter().filter(|n| !n.middle_english).collect();
-        candidates = interleave(candidates, find(&dots), options.k);
+        candidates = interleave(candidates, find(&dots, false), options.k);
     }
     add_raw_input(input, lattice.len(), &mut candidates, options.k);
     candidates
+}
+
+/// 上位 N 件を探し、コストに n-gram を足して並べ替えて、上位 K 件を残す。`keep_first` なら探索の 1 位を先頭に残す。
+fn reranked(
+    dict: &Dictionary,
+    nodes: &[Node],
+    len: usize,
+    k: usize,
+    rerank: &Rerank,
+    keep_first: bool,
+) -> Vec<Candidate> {
+    let mut found = search(dict, nodes, len, rerank.pool.max(k));
+    for c in &mut found {
+        let centinats = rerank.ngram.cost(&c.surface).min(i32::MAX as u64) as i64;
+        let extra = centinats * rerank.cost_per_nat as i64 / 100;
+        c.cost = (c.cost as i64 + extra).min(i32::MAX as i64) as i32;
+    }
+    let fixed = usize::from(keep_first).min(found.len());
+    found[fixed..].sort_by_key(|c| c.cost);
+    found.truncate(k);
+    found
 }
 
 /// 2 つの候補の並びを、`a` の 1 位から交互に並べる（同じ表記は先に出たほうだけ残す）。

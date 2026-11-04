@@ -13,7 +13,7 @@
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use aiokey_engine::convert::{convert_reranked, Candidate, Options, Rerank};
+use aiokey_engine::convert::{convert_reranked, Candidate, Options};
 use aiokey_engine::dict::Dictionary;
 use aiokey_engine::input::has_middle_slash;
 use aiokey_engine::ngram::Ngram;
@@ -193,12 +193,7 @@ impl ConversionService {
             Vec::new()
         } else {
             let settings = &self.inner.config.ngram;
-            let rerank = self.inner.ngram.as_deref().map(|ngram| Rerank {
-                ngram,
-                pool: settings.pool,
-                cost_per_nat: settings.cost_per_nat,
-                max_entries_per_span: settings.max_entries_per_span,
-            });
+            let rerank = self.inner.ngram.as_deref().map(|n| settings.rerank(n));
             convert_reranked(
                 &self.inner.dictionary,
                 &text,

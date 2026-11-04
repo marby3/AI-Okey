@@ -58,3 +58,6 @@ def test_malformed_table_is_rejected(tmp_path):
     path.write_bytes(b"AIOKNGR1" + b"\0" * 40)
     with pytest.raises(ValueError, match="ngram"):
         aiokey.Ngram(str(path))
+    # 基準 8：表の形式は 3 文字までしか表せず、4 文字以上の並びは書けない
+    with pytest.raises(ValueError, match="ngram"):
+        aiokey.write_ngram(str(tmp_path / "long.bin"), [("四文字列", 1)], 1)

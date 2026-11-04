@@ -56,7 +56,8 @@ def test_before_and_after_are_compared_for_every_set_with_stage2():
         assert all("%" in c for c in r[1:9]), r
         assert re.fullmatch(r"\d[\d,]*／\d[\d,]*", r[9]), r  # 勝ち／負け
     stage2 = rows(section("段2を飛ばす割合と候補ウィンドウ"))
-    assert stage2 and all("%" in c for r in stage2 for c in r[1:]), stage2
+    assert [r[0] for r in stage2] == names
+    assert all("%" in c for r in stage2 for c in r[1:]), stage2
 
 
 def test_latency_and_memory_are_recorded_for_each_pool_size():
@@ -97,11 +98,8 @@ def test_table_ships_pinned_and_corpus_text_stays_out():
     iss = (ROOT / "installer/Installer.iss").read_text(encoding="utf-8")
     assert 'Source: "{#SourceDir}/aiokey-ngram.bin"' in iss and "DeleteOldFile('aiokey-ngram.bin')" in iss
     # 表はリポジトリに入れない
-    assert subprocess.run(["git", "-c", "safe.directory=*", "check-ignore", "-q", "target/ngram/aiokey-ngram.bin"],
-                          cwd=ROOT).returncode == 0
-    # 表の形式は 3 文字までしか表せず、4 文字の並びは書けない
-    engine = (ROOT / "crates/aiokey-engine/src/ngram.rs").read_text(encoding="utf-8")
-    assert "MAX_CHARS: usize = 3" in engine
+    for path in ["target/ngram/aiokey-ngram.bin", "aiokey-ngram.bin"]:
+        assert subprocess.run(["git", "-c", "safe.directory=*", "check-ignore", "-q", path], cwd=ROOT).returncode == 0, path
     notice = (ROOT / "NOTICE").read_text(encoding="utf-8")
     assert "aiokey-ngram.bin" in notice
     data = (ROOT / "docs/training-data.md").read_text(encoding="utf-8")

@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use aiokey_engine::convert::{convert_reranked, Options, Rerank};
+use aiokey_engine::convert::{convert_reranked, Options};
 use aiokey_engine::dict::Dictionary;
 use aiokey_engine::ngram::Ngram;
 use aiokey_ipc::proto::{
@@ -63,12 +63,7 @@ async fn main() {
     let service = ConversionService::with_ngram(dict.clone(), ngram.clone(), config, loader);
     let start_rss = memory("VmRSS");
 
-    let rerank = ngram.as_deref().map(|ngram| Rerank {
-        ngram,
-        pool: settings.pool,
-        cost_per_nat: settings.cost_per_nat,
-        max_entries_per_span: settings.max_entries_per_span,
-    });
+    let rerank = ngram.as_deref().map(|n| settings.rerank(n));
     let (mut stage1, mut total) = (Vec::new(), Vec::new());
     for input in &inputs {
         let t = Instant::now();

@@ -31,6 +31,10 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use aiokey_engine::convert::{
+    Rerank, DEFAULT_COST_PER_NAT, DEFAULT_MAX_ENTRIES_PER_SPAN, DEFAULT_POOL,
+};
+use aiokey_engine::ngram::Ngram;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -50,6 +54,18 @@ pub struct NgramConfig {
     pub pool: usize,
     pub cost_per_nat: i32,
     pub max_entries_per_span: usize,
+}
+
+impl NgramConfig {
+    /// この設定で `ngram` の表を使って並べ替える設定。
+    pub fn rerank<'a>(&self, ngram: &'a Ngram) -> Rerank<'a> {
+        Rerank {
+            ngram,
+            pool: self.pool,
+            cost_per_nat: self.cost_per_nat,
+            max_entries_per_span: self.max_entries_per_span,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -91,9 +107,9 @@ impl Default for Config {
             ngram: NgramConfig {
                 enabled: true,
                 table: None,
-                pool: 128,
-                cost_per_nat: 250,
-                max_entries_per_span: 80,
+                pool: DEFAULT_POOL,
+                cost_per_nat: DEFAULT_COST_PER_NAT,
+                max_entries_per_span: DEFAULT_MAX_ENTRIES_PER_SPAN,
             },
             stage2: Stage2Config {
                 model: None,
