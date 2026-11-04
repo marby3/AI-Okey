@@ -5,6 +5,7 @@
     python -m aiokey analyze --examples target/eval/atc.jsonl --dict build/aiokey.dic [--scorer GGUF]
     python -m aiokey compare --examples target/eval/atc.jsonl --scorer GGUF [--beam 8] [--cost-weight 0.5]
     python -m aiokey train --train data/examples/train.jsonl --dev data/examples/dev.jsonl --out build/stage2
+    python -m aiokey ngram --articles data/corpora/articles/wikipedia.jsonl --out target/ngram/aiokey-ngram.bin
 """
 
 from __future__ import annotations
@@ -53,6 +54,16 @@ def main(argv: list[str] | None = None) -> int:
     an.add_argument("--no-context", action="store_true", help="段2に文脈を渡さずに測る")
     an.add_argument("--max-candidates", type=int, help="段2に渡す候補の数。省くとサーバーの既定と同じ")
     an.add_argument("--rows", type=Path, help="例ごとの結果（JSONL）を書く先")
+    an.add_argument("--ngram", type=Path, help="文字 n-gram の表。渡すと段1の候補を並べ替える（省くと今の並び）")
+    an.add_argument("--ngram-pool", type=int, default=128, help="並べ替える前に探す候補の数（N）")
+    an.add_argument("--ngram-cost-per-nat", type=int, default=250, help="n-gram の 1 ナットを足す段1のコスト（重み）")
+    an.add_argument("--ngram-max-entries", type=int, default=80, help="並べ替えるときの 1 区間の語の上限")
+    an.add_argument("--skip-cost-gap", type=int, help="段2を飛ばす 1 位と 2 位のコスト差。省くとサーバーの既定と同じ")
+    ng = sub.add_parser("ngram", help="段1の並べ替えに使う文字 n-gram の表を作る（#58）")
+    ng.add_argument("--articles", type=Path, nargs="+", required=True, help="記事の JSONL。train の記事だけを数える")
+    ng.add_argument("--exclude", type=Path, nargs="*", default=[], help="評価の例の JSONL。正解と同じ文は数えない")
+    ng.add_argument("--out", type=Path, required=True)
+    ng.add_argument("--min-count", type=int, default=20, help="この回数より少ない 2・3 文字の並びは持たない")
     co = sub.add_parser("compare", help="段2で文を生成する方式（#40）と今の方式を比べ、JSON で出す")
     co.add_argument("--examples", type=Path, required=True, help="sentences が作った JSONL")
     co.add_argument("--dict", type=Path, default=Path("build/aiokey.dic"))
@@ -76,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
         return _analyze(args)
     if args.command == "compare":
         return _compare(args)
+    if args.command == "ngram":
+        return _ngram(args)
 
     import itertools
 
@@ -95,6 +108,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
     print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _ngram(args) -> int:
+    from aiokey import ngram
+
+    counts = ngram.count(args.articles, args.exclude)
+    ngram.write(counts, args.out, args.min_count)
+    print(f"{args.out}: {counts.sentences} sentences, {args.out.stat().st_size / 1e6:.1f} MB", file=sys.stderr)
     return 0
 
 
@@ -121,7 +143,7 @@ def _temperature(args) -> float:
 
 def _analyze(args) -> int:
     from aiokey import Converter, Scorer
-    from aiokey.analyze import MAX_CANDIDATES, Analyzer, analyze
+    from aiokey.analyze import MAX_CANDIDATES, SKIP_COST_GAP, Analyzer, analyze
 
     scorer = None
     max_candidates = args.max_candidates or MAX_CANDIDATES
@@ -129,8 +151,10 @@ def _analyze(args) -> int:
         scorer = Scorer(str(args.scorer), "aiokey", args.threads, max_candidates, _temperature(args))
     with open(args.examples, encoding="utf-8") as f:
         examples = [json.loads(line) for line in f if line.strip()]
-    report, rows = analyze(examples, Analyzer(Converter(str(args.dict)), scorer, max_candidates=max_candidates,
-                                            use_context=not args.no_context))
+    converter = Converter(str(args.dict), str(args.ngram) if args.ngram else None, args.ngram_pool,
+                          args.ngram_cost_per_nat, args.ngram_max_entries)
+    report, rows = analyze(examples, Analyzer(converter, scorer, skip_cost_gap=args.skip_cost_gap or SKIP_COST_GAP,
+                                              max_candidates=max_candidates, use_context=not args.no_context))
     if args.rows:
         with open(args.rows, "w", encoding="utf-8") as f:
             for row in rows:

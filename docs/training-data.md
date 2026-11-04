@@ -168,6 +168,25 @@ e-Gov 法令検索（著作権法、昭和四十五年法律第四十八号）�
   だけで、学習が終わったら消す（`docs/training-gpu.md`）。
 - **国外での扱い。** 第三十条の四は日本の法律。配布するモデルを国外で使うときの扱いは、その国の法律による。
 
+## 段1の文字 n-gram の表
+
+段1の候補の並べ替え（#58、`docs/eval/stage1-ngram.md`）に使う表（`aiokey-ngram.bin`）。段2の学習データとは別に、配布物に入る。
+
+- **元のコーパス**：Wikipedia、Wikinews、Tatoeba、Common Voice、青空文庫の train の記事だけ。**Web のコーパス（FineWeb-2）は使わない。**
+  ライセンスで利用を許されたコーパスだけで足りるので（除いても B はほぼ変わらない）、第三十条の四に頼る範囲を配布物の統計に広げない。
+- **除く文**：dev と test の記事、test の記事に出てくる文、評価の文（段2の学習データと同じ。`--exclude`）。
+- **持つもの**：3 文字までの並びと、その負の対数確率だけ。形式が 3 文字までしか表せず（`crates/aiokey-engine/src/ngram.rs` の `MAX_CHARS`）、
+  20 回より少ない 2・3 文字の並びは持たないので、文章を復元できない。
+- **ライセンス**：Wikipedia（CC BY-SA 4.0）を含むので、表は CC BY-SA 4.0 として扱う（`NOTICE`）。段2のモデルと同じ扱いで、法律の専門家の確認は経ていない。
+- **置き場所**：表はリポジトリに入れず、表専用の Release（`stage1-ngram-v1`）に置いて SHA-256 を固定する（`scripts/fetch-ngram.sh`）。コーパスと、数えた結果は配布しない。
+- **作り方**：
+
+  ```bash
+  python -m aiokey ngram --articles data/corpora/articles/{wikipedia,wikinews,tatoeba,common-voice,aozora}.jsonl \
+    --exclude target/examples2000/test.jsonl target/examples/test.jsonl target/eval/test.jsonl target/eval/atc.jsonl target/eval/proper.jsonl \
+    --out target/ngram/aiokey-ngram.bin
+  ```
+
 ## CPU で流した確認
 
 新しいデータ（`target/examples-v2` の先頭 400 例を gzip にしたもの）で、学習が最後まで流れることを手元の CPU で確かめた

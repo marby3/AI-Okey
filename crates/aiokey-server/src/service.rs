@@ -13,9 +13,10 @@
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use aiokey_engine::convert::{convert, Candidate, Options};
+use aiokey_engine::convert::{convert_reranked, Candidate, Options, Rerank};
 use aiokey_engine::dict::Dictionary;
 use aiokey_engine::input::has_middle_slash;
+use aiokey_engine::ngram::Ngram;
 use aiokey_ipc::proto::{
     aiokey_service_server::AiokeyService, AppendTextRequest, AppendTextResponse, ClearTextRequest,
     ClearTextResponse, ComposingText, ConvertRequest, ConvertResponse, GetComposingTextRequest,
@@ -111,6 +112,8 @@ struct Stage2 {
 
 struct Inner {
     dictionary: Arc<Dictionary>,
+    /// 段1の候補を並べ替える文字 n-gram の表（#58）。None なら並べ替えない
+    ngram: Option<Arc<Ngram>>,
     config: Config,
     session: Mutex<Session>,
     /// 入力が変わったことを、段2の待ち合わせのタスクに知らせる
@@ -128,10 +131,21 @@ pub struct ConversionService {
 impl ConversionService {
     /// `loader` が None なら段2を使わない。tokio のランタイムの中で呼ぶ。
     pub fn new(dictionary: Arc<Dictionary>, config: Config, loader: Option<Loader>) -> Self {
+        Self::with_ngram(dictionary, None, config, loader)
+    }
+
+    /// [`Self::new`] に、段1の候補を並べ替える文字 n-gram の表を足したもの（#58）。
+    pub fn with_ngram(
+        dictionary: Arc<Dictionary>,
+        ngram: Option<Arc<Ngram>>,
+        config: Config,
+        loader: Option<Loader>,
+    ) -> Self {
         let (changed, changed_rx) = watch::channel(0);
         let (settled, _) = watch::channel(0);
         let inner = Arc::new(Inner {
             dictionary,
+            ngram,
             config,
             session: Mutex::new(Session {
                 settled: true,
@@ -178,12 +192,20 @@ impl ConversionService {
         session.candidates = if text.is_empty() {
             Vec::new()
         } else {
-            convert(
+            let settings = &self.inner.config.ngram;
+            let rerank = self.inner.ngram.as_deref().map(|ngram| Rerank {
+                ngram,
+                pool: settings.pool,
+                cost_per_nat: settings.cost_per_nat,
+                max_entries_per_span: settings.max_entries_per_span,
+            });
+            convert_reranked(
                 &self.inner.dictionary,
                 &text,
                 &Options {
                     k: self.inner.config.k,
                 },
+                rerank.as_ref(),
             )
         };
         session.revision += 1;

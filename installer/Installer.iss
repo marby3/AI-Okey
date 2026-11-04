@@ -59,6 +59,7 @@ Source: "{#SourceDir}/aiokey-ui.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}/aiokey-launcher.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}/aiokey-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}/aiokey.dic"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}/aiokey-ngram.bin"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}/aiokey-stage2-q8_0.gguf"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}/aiokey-stage2.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}/LICENSE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
@@ -152,6 +153,7 @@ begin
   DeleteOldFile('aiokey-ui.exe');
   DeleteOldFile('aiokey-cli.exe');
   DeleteOldFile('aiokey.dic');
+  DeleteOldFile('aiokey-ngram.bin');
   DeleteOldFile('aiokey-stage2-q8_0.gguf');
   DeleteOldFile('aiokey-stage2.json');
   DeleteOldFile('LICENSE');

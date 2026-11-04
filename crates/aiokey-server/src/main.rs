@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use aiokey_engine::dict::Dictionary;
+use aiokey_engine::ngram::Ngram;
 use aiokey_ipc::proto::aiokey_service_server::AiokeyServiceServer;
 use aiokey_server::config::{Config, Priority};
 use aiokey_server::service::{model_loader, ConversionService};
@@ -100,8 +101,19 @@ async fn serve(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let dictionary = Arc::new(
         Dictionary::open(&dictionary).map_err(|e| format!("{}: {}", dictionary.display(), e.0))?,
     );
+    // 表が読めなくても IME は止めず、並べ替えなしで動く
+    let ngram = match (config.ngram.enabled, &config.ngram.table) {
+        (true, Some(path)) => match Ngram::open(path) {
+            Ok(table) => Some(Arc::new(table)),
+            Err(e) => {
+                eprintln!("aiokey-server: {e}; candidates are not reranked");
+                None
+            }
+        },
+        _ => None,
+    };
     let loader = model_loader(&config.stage2);
-    let service = ConversionService::new(dictionary, config, loader);
+    let service = ConversionService::with_ngram(dictionary, ngram, config, loader);
 
     let reflection = ReflectionBuilder::configure()
         .register_encoded_file_descriptor_set(aiokey_ipc::proto::FILE_DESCRIPTOR_SET)

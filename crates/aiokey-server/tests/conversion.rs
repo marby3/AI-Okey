@@ -426,16 +426,16 @@ async fn server_uses_the_ngram_rerank_and_judges_skipping_stage2_after_it() {
                 }) as Box<dyn Reranker>)
             })
         };
-        let service = ConversionService::with_ngram(
-            dictionary(),
-            Some(ngram.clone()),
-            config,
-            Some(loader),
-        );
+        let service =
+            ConversionService::with_ngram(dictionary(), Some(ngram.clone()), config, Some(loader));
         let first = append(&service, input).await;
         let surfaces: Vec<&str> = first.suggestions.iter().map(|s| s.text.as_str()).collect();
         let want: Vec<&str> = expected.iter().map(|c| c.surface.as_str()).collect();
         assert_eq!(surfaces, want);
-        assert_eq!(convert(&service).await.reranked, reranked, "{skip_cost_gap}");
+        assert_eq!(
+            convert(&service).await.reranked,
+            reranked,
+            "{skip_cost_gap}"
+        );
     }
 }

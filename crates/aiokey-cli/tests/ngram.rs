@@ -72,6 +72,11 @@ fn candidates_are_reranked_by_cost_and_ngram_and_keep_the_required_ones() {
 
     // 文の途中の `/` では、英語の指定と「・」の候補がどちらも上位 5 件に入る（#47、#52）
     let slash = surfaces("htst/hqt", 32, Some(&rerank));
-    assert!(slash[..5].iter().any(|s| s.contains("hqt") && !s.contains('・')), "{slash:?}");
+    assert!(
+        slash[..5]
+            .iter()
+            .any(|s| s.contains("hqt") && !s.contains('・')),
+        "{slash:?}"
+    );
     assert!(slash[..5].iter().any(|s| s.contains('・')), "{slash:?}");
 }

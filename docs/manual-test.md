@@ -29,7 +29,7 @@ NG があれば直して `rc` を出し直し、すべて OK になったら v1.
 
 | 項目 | 期待すること | 結果 |
 |---|---|---|
-| インストール | エラーなく終わる。`C:\Program Files\AI-O Key` に aiokey.dll、aiokey32.dll、aiokey-server.exe、aiokey-ui.exe、aiokey-launcher.exe、aiokey-cli.exe、aiokey.dic、aiokey-stage2-q8_0.gguf、aiokey-stage2.json がある | |
+| インストール | エラーなく終わる。`C:\Program Files\AI-O Key` に aiokey.dll、aiokey32.dll、aiokey-server.exe、aiokey-ui.exe、aiokey-launcher.exe、aiokey-cli.exe、aiokey.dic、aiokey-ngram.bin、aiokey-stage2-q8_0.gguf、aiokey-stage2.json がある | |
 | rc.3 からの上書き | `%APPDATA%\aiokey` に AI-O Key の exe と dll が残っていない（DLL は再起動のあとに消える。settings.json は残ってよい） | |
 | 自動起動（インストールの直後） | サインインし直さなくても、タスク マネージャーの「詳細」に aiokey-launcher、aiokey-server、aiokey-ui がある（ないときは末尾の「動かないとき」） | |
 | 自動起動（再起動のあと） | 再起動してサインインしたあとも、同じ 3 つがある | |
