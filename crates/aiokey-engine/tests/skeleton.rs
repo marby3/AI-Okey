@@ -131,21 +131,15 @@ fn slash_in_the_middle_is_a_middle_dot_or_an_english_word_up_to_the_next_slash()
     let lattice = parse("zyq/F/knd");
     let from_slash: Vec<_> = lattice.edges_from(3).collect();
     assert!(
-        from_slash
-            .iter()
-            .any(|e| e.end == 5 && e.unit == Unit::English("F".to_string())),
+        from_slash.iter().any(|e| e.end == 5 && e.unit == Unit::English("F".to_string())),
         "{from_slash:?}"
     );
     assert!(
-        !from_slash
-            .iter()
-            .any(|e| matches!(&e.unit, Unit::English(w) if w.contains('/'))),
+        !from_slash.iter().any(|e| matches!(&e.unit, Unit::English(w) if w.contains('/'))),
         "{from_slash:?}"
     );
     assert!(
-        from_slash
-            .iter()
-            .any(|e| e.end == 4 && e.unit == Unit::Other('/')),
+        from_slash.iter().any(|e| e.end == 4 && e.unit == Unit::Other('/')),
         "{from_slash:?}"
     );
 }

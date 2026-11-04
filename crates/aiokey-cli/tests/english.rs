@@ -113,25 +113,15 @@ fn slash_marks_english_and_a_lone_slash_is_a_middle_dot() {
 // 「ジョン・F・ケネディ」の順位は記録のために出す（cargo test -- --nocapture）
 #[test]
 fn english_and_middle_dot_candidates_are_both_near_the_top() {
-    for (input, word) in [
-        ("zyq/F/knd", "F"),
-        ("htst/hqt", "hqt"),
-        ("htst/keyboard", "keyboard"),
-    ] {
+    for (input, word) in [("zyq/F/knd", "F"), ("htst/hqt", "hqt"), ("htst/keyboard", "keyboard")] {
         let s = surfaces(input);
         let top: Vec<_> = s.iter().take(5).collect();
-        assert!(
-            top.iter().any(|x| x.contains(word) && !x.contains('・')),
-            "{input}: {top:?}"
-        );
+        assert!(top.iter().any(|x| x.contains(word) && !x.contains('・')), "{input}: {top:?}");
         assert!(top.iter().any(|x| x.contains('・')), "{input}: {top:?}");
     }
     let s = convert(dictionary(), "zyq/F/knd", &Options { k: 3000 });
     let rank = s.iter().position(|c| c.surface == "ジョン・F・ケネディ");
-    eprintln!(
-        "zyq/F/knd: ジョン・F・ケネディ は {:?} 位（1 始まり、K=3000）",
-        rank.map(|r| r + 1)
-    );
+    eprintln!("zyq/F/knd: ジョン・F・ケネディ は {:?} 位（1 始まり、K=3000）", rank.map(|r| r + 1));
 }
 
 // #52 基準 1：`/` のあとが長くても、英語の指定と「・」の候補がどちらも上位 5 件に入り、1 位は英語の指定
@@ -146,10 +136,7 @@ fn middle_dot_candidates_stay_near_the_top_after_a_long_tail() {
     ] {
         let s = surfaces(input);
         let top: Vec<_> = s.iter().take(5).collect();
-        assert!(
-            top[0].contains(word) && !top[0].contains('・'),
-            "{input}: {top:?}"
-        );
+        assert!(top[0].contains(word) && !top[0].contains('・'), "{input}: {top:?}");
         assert!(top.iter().any(|x| x.contains('・')), "{input}: {top:?}");
     }
 }

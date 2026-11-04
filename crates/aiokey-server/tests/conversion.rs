@@ -401,12 +401,26 @@ async fn server_uses_the_ngram_rerank_and_judges_skipping_stage2_after_it() {
 
     let entries = vec![("ふ".to_string(), 1), ("と".to_string(), 1)];
     let ngram = Arc::new(Ngram::from_bytes(to_bytes(entries, 1000).unwrap()).unwrap());
+    let settings = Config::default().ngram;
     let rerank = Rerank {
         ngram: &ngram,
-        pool: 128,
-        cost_per_nat: 250,
-        max_entries_per_span: 40,
+        pool: settings.pool,
+        cost_per_nat: settings.cost_per_nat,
+        max_entries_per_span: settings.max_entries_per_span,
     };
+    // 配布物の隣にある表を既定で使い、無効にすれば使わない（#58 基準 7）
+    let dir = std::env::temp_dir().join(format!("aiokey-ngram-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundled = dir.join(aiokey_server::config::BUNDLED_NGRAM);
+    std::fs::write(&bundled, b"table").unwrap();
+    assert_eq!(
+        Config::default().with_bundled_model(&dir).ngram.table,
+        Some(bundled)
+    );
+    let disabled = Config::from_toml("[ngram]\nenabled = false\n").unwrap();
+    assert_eq!(disabled.with_bundled_model(&dir).ngram.table, None);
+    std::fs::remove_dir_all(&dir).unwrap();
+
     let input = "htsthqtun";
     let expected = convert_reranked(&dictionary(), input, &Options { k: 32 }, Some(&rerank));
     let gap = expected[1].cost - expected[0].cost;
