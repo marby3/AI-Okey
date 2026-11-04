@@ -68,6 +68,13 @@ License: ODC-By 1.0（利用は Common Crawl の利用規約 https://commoncrawl
 （情報解析）を根拠に使う（判断の記録は docs/training-data.md）。データそのものはリポジトリにも配布物にも含めない。
 
 --------------------------------------------------------------------------------
+文字 n-gram の表（aiokey-ngram.bin）
+License: CC-BY-SA 4.0
+用途: 段1の候補の並べ替え（#58）。Wikipedia 日本語版（CC-BY-SA 4.0）、Wikinews 日本語版（CC-BY 4.0）、Tatoeba（CC-BY 2.0 FR）、
+Common Voice（CC0 1.0）、aozorabunko-clean（CC-BY 4.0）の文から、3 文字までの並びの確率を数えたもの。文章そのものと、
+Web のコーパス（FineWeb-2）に由来するものは含まない（docs/training-data.md）。
+
+--------------------------------------------------------------------------------
 llama.cpp
 https://github.com/ggml-org/llama.cpp
 License: MIT

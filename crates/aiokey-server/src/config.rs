@@ -5,6 +5,13 @@
 //! k = 32                           # 段1の候補の数
 //! priority = "below_normal"        # normal / below_normal / idle
 //!
+//! [ngram]
+//! enabled = true                   # false なら段1の候補を文字 n-gram で並べ替えない
+//! # table = "aiokey-ngram.bin"     # 省略すると、実行ファイルの隣の表（なければ並べ替えない）
+//! pool = 128                       # 並べ替える前に探す候補の数
+//! cost_per_nat = 250               # n-gram の 1 ナットを足す段1のコスト（重み）
+//! max_entries_per_span = 80        # 並べ替えるときの、1 区間の語の上限
+//!
 //! [stage2]
 //! model = "aiokey-stage2-q8_0.gguf" # 省略すると、実行ファイルの隣の学習済みモデル（なければ段2を使わない）
 //! format = "aiokey"                # aiokey / zenz
@@ -24,6 +31,10 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use aiokey_engine::convert::{
+    Rerank, DEFAULT_COST_PER_NAT, DEFAULT_MAX_ENTRIES_PER_SPAN, DEFAULT_POOL,
+};
+use aiokey_engine::ngram::Ngram;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -32,6 +43,29 @@ pub enum Priority {
     Normal,
     BelowNormal,
     Idle,
+}
+
+/// 段1の候補を文字 n-gram で並べ替える設定（#58。値の根拠は docs/eval/stage1-ngram.md）。
+#[derive(Debug, Clone)]
+pub struct NgramConfig {
+    pub enabled: bool,
+    /// 表のファイル。None なら実行ファイルの隣の [`BUNDLED_NGRAM`]（[`Config::with_bundled_model`]）
+    pub table: Option<PathBuf>,
+    pub pool: usize,
+    pub cost_per_nat: i32,
+    pub max_entries_per_span: usize,
+}
+
+impl NgramConfig {
+    /// この設定で `ngram` の表を使って並べ替える設定。
+    pub fn rerank<'a>(&self, ngram: &'a Ngram) -> Rerank<'a> {
+        Rerank {
+            ngram,
+            pool: self.pool,
+            cost_per_nat: self.cost_per_nat,
+            max_entries_per_span: self.max_entries_per_span,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +94,7 @@ pub struct Config {
     /// 段1の候補の数
     pub k: usize,
     pub priority: Priority,
+    pub ngram: NgramConfig,
     pub stage2: Stage2Config,
 }
 
@@ -69,6 +104,13 @@ impl Default for Config {
             dictionary: None,
             k: 32,
             priority: Priority::BelowNormal,
+            ngram: NgramConfig {
+                enabled: true,
+                table: None,
+                pool: DEFAULT_POOL,
+                cost_per_nat: DEFAULT_COST_PER_NAT,
+                max_entries_per_span: DEFAULT_MAX_ENTRIES_PER_SPAN,
+            },
             stage2: Stage2Config {
                 model: None,
                 format: "aiokey".into(),
@@ -91,7 +133,18 @@ struct File {
     dictionary: Option<PathBuf>,
     k: Option<usize>,
     priority: Option<Priority>,
+    ngram: Option<NgramFile>,
     stage2: Option<Stage2File>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NgramFile {
+    enabled: Option<bool>,
+    table: Option<PathBuf>,
+    pool: Option<usize>,
+    cost_per_nat: Option<i32>,
+    max_entries_per_span: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -111,11 +164,17 @@ struct Stage2File {
 /// 配布物に入れる学習済みの段2と、その校正値（温度など）のファイル名
 pub const BUNDLED_MODEL: &str = "aiokey-stage2-q8_0.gguf";
 pub const BUNDLED_MODEL_INFO: &str = "aiokey-stage2.json";
+/// 配布物に入れる文字 n-gram の表のファイル名
+pub const BUNDLED_NGRAM: &str = "aiokey-ngram.bin";
 
 impl Config {
     /// 設定で段2のモデルを指定していなければ、`dir`（実行ファイルのフォルダ）の学習済みモデルを使う。
     /// 温度を指定していなければ、モデルの隣の [`BUNDLED_MODEL_INFO`] の校正値を使う。
     pub fn with_bundled_model(mut self, dir: &Path) -> Self {
+        let table = dir.join(BUNDLED_NGRAM);
+        if self.ngram.enabled && self.ngram.table.is_none() && table.is_file() {
+            self.ngram.table = Some(table);
+        }
         let model = dir.join(BUNDLED_MODEL);
         if self.stage2.model.is_none() && model.is_file() {
             self.stage2.model = Some(model);
@@ -144,6 +203,14 @@ impl Config {
         config.dictionary = file.dictionary;
         config.k = file.k.unwrap_or(config.k);
         config.priority = file.priority.unwrap_or(config.priority);
+        if let Some(n) = file.ngram {
+            let c = &mut config.ngram;
+            c.enabled = n.enabled.unwrap_or(c.enabled);
+            c.table = n.table;
+            c.pool = n.pool.unwrap_or(c.pool);
+            c.cost_per_nat = n.cost_per_nat.unwrap_or(c.cost_per_nat);
+            c.max_entries_per_span = n.max_entries_per_span.unwrap_or(c.max_entries_per_span);
+        }
         if let Some(s) = file.stage2 {
             let c = &mut config.stage2;
             c.model = s.model;
@@ -179,6 +246,7 @@ impl Config {
             Ok(mut config) => {
                 let base = path.parent().unwrap_or(Path::new("."));
                 config.dictionary = config.dictionary.map(|p| base.join(p));
+                config.ngram.table = config.ngram.table.map(|p| base.join(p));
                 config.stage2.model = config.stage2.model.map(|p| base.join(p));
                 (config, None)
             }

@@ -4,6 +4,7 @@
 //!    混在入力で打った母音は、読みの各かなの母音と照らし合わせて絞る。
 //! 2. 未知語に備えて、入力の 1 単位ごとにひらがな（子音なら各段のかな）の語を高いコストで足す。
 //! 3. 前向きの Viterbi で各語までの最小コストを求め、後ろ向きの A* で表記の重複しない上位 K 件を出す。
+//! 4. 文字 n-gram の表があれば、上位 N 件を探してコストと n-gram で並べ替え、上位 K 件を残す（[`convert_reranked`]。#58）。
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -12,6 +13,7 @@ use std::rc::Rc;
 
 use crate::dict::Dictionary;
 use crate::input::{has_middle_slash, parse, InputLattice, Unit, ENGLISH_PREFIX};
+use crate::ngram::Ngram;
 use crate::skeleton;
 
 /// 1 語がたどる入力の単位の上限。
@@ -21,7 +23,7 @@ const MAX_PATHS_PER_START: usize = 128;
 /// 同じ区間（開始位置と終了位置）・同じ読み方（キーと打った母音）に置く辞書の語の上限。
 /// コストの低い順に残す。読み方ごとに数えるのは、`kik` の「き＋子音」と「子音＋い＋子音」のように、
 /// 解釈の違う語どうしで枠を取り合わないようにするため。
-const MAX_ENTRIES_PER_SPAN: usize = 40;
+pub const MAX_ENTRIES_PER_SPAN: usize = 40;
 /// 未知語（辞書にないかな 1 文字）のコスト。
 const UNKNOWN_COST: i32 = 9000;
 /// 文の途中の `/` を「・」と読むときのコスト（#47）。
@@ -69,6 +71,23 @@ impl Default for Options {
     }
 }
 
+/// [`Rerank`] の既定値（dev で選んだ。根拠は docs/eval/stage1-ngram.md）。
+pub const DEFAULT_POOL: usize = 128;
+pub const DEFAULT_COST_PER_NAT: i32 = 250;
+pub const DEFAULT_MAX_ENTRIES_PER_SPAN: usize = 80;
+
+/// 文字 n-gram で候補を並べ替える設定（#58）。
+#[derive(Debug, Clone, Copy)]
+pub struct Rerank<'a> {
+    pub ngram: &'a Ngram,
+    /// 並べ替える前に探す候補の数（N）。K より小さければ K 件を探す
+    pub pool: usize,
+    /// n-gram の 1 ナットを段1のコストいくつとして足すか（重み）
+    pub cost_per_nat: i32,
+    /// 並べ替えるときの、同じ区間・同じ読み方に置く語の上限（表がないときは [`MAX_ENTRIES_PER_SPAN`]）
+    pub max_entries_per_span: usize,
+}
+
 /// 候補の中の 1 語。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Word {
@@ -81,7 +100,8 @@ pub struct Word {
 pub struct Candidate {
     pub surface: String,
     pub reading: String,
-    /// 段1のコスト。文の途中に `/` がある入力では、候補の並びはこの順とは限らない（[`convert`]）
+    /// 段1のコスト（表で並べ替えたときは n-gram を足した値）。文の途中に `/` がある入力では、候補の並びはこの順とは
+    /// 限らない（[`convert`]）
     pub cost: i32,
     pub words: Vec<Word>,
     /// 文節ごとの入力の範囲（文字位置）
@@ -109,23 +129,58 @@ struct Node {
 /// 「・」の候補が K 件に入らない。#52）。このときは並びがコストの順にならないので、段2が文脈で決める
 /// （[`crate::input::has_middle_slash`]）。
 pub fn convert(dict: &Dictionary, input: &str, options: &Options) -> Vec<Candidate> {
+    convert_reranked(dict, input, options, None)
+}
+
+/// [`convert`] と同じで、`rerank` があれば上位 N 件を文字 n-gram とコストで並べ替えてから上位 K 件を残す。
+/// 文の途中に `/` があるときは、英語の指定ありの探索の 1 位を先頭に固定して（#52。英字は n-gram のコストが高く、
+/// 「・」の候補に抜かれる）、残りと「・」だけの探索をそれぞれ並べ替えてから交互に並べる。
+pub fn convert_reranked(
+    dict: &Dictionary,
+    input: &str,
+    options: &Options,
+    rerank: Option<&Rerank>,
+) -> Vec<Candidate> {
     let lattice = parse(input);
     if lattice.is_empty() || options.k == 0 {
         return Vec::new();
     }
-    let nodes = build_nodes(dict, &lattice);
-    let mut candidates = search(dict, &nodes, lattice.len(), options.k);
-    if has_middle_slash(input) {
+    let max_entries = rerank.map_or(MAX_ENTRIES_PER_SPAN, |r| r.max_entries_per_span);
+    let nodes = build_nodes(dict, &lattice, max_entries);
+    let middle_slash = has_middle_slash(input);
+    let find = |nodes: &[Node], keep_first: bool| match rerank {
+        None => search(dict, nodes, lattice.len(), options.k),
+        Some(r) => reranked(dict, nodes, lattice.len(), options.k, r, keep_first),
+    };
+    let mut candidates = find(&nodes, middle_slash);
+    if middle_slash {
         // 英語の指定の辺は辞書を引く道に入らず、辺ごとに語を 1 つ置くだけなので、その語を外せば「・」だけの読みになる
         let dots: Vec<Node> = nodes.into_iter().filter(|n| !n.middle_english).collect();
-        candidates = interleave(
-            candidates,
-            search(dict, &dots, lattice.len(), options.k),
-            options.k,
-        );
+        candidates = interleave(candidates, find(&dots, false), options.k);
     }
     add_raw_input(input, lattice.len(), &mut candidates, options.k);
     candidates
+}
+
+/// 上位 N 件を探し、コストに n-gram を足して並べ替えて、上位 K 件を残す。`keep_first` なら探索の 1 位を先頭に残す。
+fn reranked(
+    dict: &Dictionary,
+    nodes: &[Node],
+    len: usize,
+    k: usize,
+    rerank: &Rerank,
+    keep_first: bool,
+) -> Vec<Candidate> {
+    let mut found = search(dict, nodes, len, rerank.pool.max(k));
+    for c in &mut found {
+        let centinats = rerank.ngram.cost(&c.surface).min(i32::MAX as u64) as i64;
+        let extra = centinats * rerank.cost_per_nat as i64 / 100;
+        c.cost = (c.cost as i64 + extra).min(i32::MAX as i64) as i32;
+    }
+    let fixed = usize::from(keep_first).min(found.len());
+    found[fixed..].sort_by_key(|c| c.cost);
+    found.truncate(k);
+    found
 }
 
 /// 2 つの候補の並びを、`a` の 1 位から交互に並べる（同じ表記は先に出たほうだけ残す）。
@@ -162,7 +217,7 @@ pub struct LatticeWord {
 pub fn lattice_words(dict: &Dictionary, input: &str) -> (usize, Vec<LatticeWord>) {
     let lattice = parse(input);
     let mut words = Vec::new();
-    for n in build_nodes(dict, &lattice) {
+    for n in build_nodes(dict, &lattice, MAX_ENTRIES_PER_SPAN) {
         if n.cost == UNKNOWN_COST {
             let katakana = to_katakana(&n.surface);
             if katakana != n.surface {
@@ -287,7 +342,7 @@ fn vowels_match(reading: &str, vowels: &[Option<char>]) -> bool {
             .all(|(&(_, have), want)| want.is_none() || have == *want)
 }
 
-fn build_nodes(dict: &Dictionary, lattice: &InputLattice) -> Vec<Node> {
+fn build_nodes(dict: &Dictionary, lattice: &InputLattice, max_entries: usize) -> Vec<Node> {
     let mut nodes = Vec::new();
     for start in 0..lattice.len() {
         // 読み方（キーと打った母音）ごとに、終了位置と、合う語の (コスト, 番号)
@@ -338,7 +393,7 @@ fn build_nodes(dict: &Dictionary, lattice: &InputLattice) -> Vec<Node> {
                     middle_english: false,
                 });
                 placed += 1;
-                if placed >= MAX_ENTRIES_PER_SPAN {
+                if placed >= max_entries {
                     break;
                 }
             }

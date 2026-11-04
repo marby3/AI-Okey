@@ -4,4 +4,5 @@
 pub mod convert;
 pub mod dict;
 pub mod input;
+pub mod ngram;
 pub mod skeleton;

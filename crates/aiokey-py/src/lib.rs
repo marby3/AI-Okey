@@ -5,8 +5,12 @@ use std::path::Path;
 
 use std::sync::Mutex;
 
-use aiokey_engine::convert::{convert, lattice_words, Options};
+use aiokey_engine::convert::{
+    convert_reranked, lattice_words, Options, Rerank, DEFAULT_COST_PER_NAT,
+    DEFAULT_MAX_ENTRIES_PER_SPAN, DEFAULT_POOL,
+};
 use aiokey_engine::dict::Dictionary;
+use aiokey_engine::ngram::{self, Ngram as Table};
 use aiokey_scorer::generate::{Constraint, GenerateOptions, Word};
 use aiokey_scorer::{Config, PromptFormat, Request, Scorer as ScorerImpl, Scores};
 use pyo3::exceptions::{PyOSError, PyValueError};
@@ -47,19 +51,82 @@ fn read_english_tsv(path: &str) -> PyResult<Vec<(String, u32)>> {
     aiokey_dictbuild::read_english_tsv(Path::new(path)).map_err(PyValueError::new_err)
 }
 
-/// 辞書を開いて段1の変換をする。
+/// 文字 n-gram の表（#58）。`cost` は文の負の対数確率（centinat）。
+#[pyclass(frozen)]
+struct Ngram {
+    table: Table,
+}
+
+#[pymethods]
+impl Ngram {
+    #[new]
+    fn new(path: &str) -> PyResult<Self> {
+        let table =
+            Table::open(Path::new(path)).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self { table })
+    }
+
+    fn cost(&self, text: &str) -> u64 {
+        self.table.cost(text)
+    }
+}
+
+/// (並び, コスト) の一覧から文字 n-gram の表のファイルを書く。
+#[pyfunction]
+fn write_ngram(path: &str, entries: Vec<(String, u16)>, unknown: u32) -> PyResult<()> {
+    let bytes =
+        ngram::to_bytes(entries, unknown).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    std::fs::write(path, bytes).map_err(|e| PyValueError::new_err(format!("{path}: {e}")))
+}
+
+/// 辞書を開いて段1の変換をする。`ngram` に文字 n-gram の表を渡すと、候補を並べ替える（#58）。
 #[pyclass(frozen)]
 struct Converter {
     dict: Dictionary,
+    ngram: Option<Table>,
+    pool: usize,
+    cost_per_nat: i32,
+    max_entries_per_span: usize,
+}
+
+impl Converter {
+    fn run(&self, input: &str, k: usize) -> Vec<aiokey_engine::convert::Candidate> {
+        let rerank = self.ngram.as_ref().map(|ngram| Rerank {
+            ngram,
+            pool: self.pool,
+            cost_per_nat: self.cost_per_nat,
+            max_entries_per_span: self.max_entries_per_span,
+        });
+        convert_reranked(&self.dict, input, &Options { k }, rerank.as_ref())
+    }
 }
 
 #[pymethods]
 impl Converter {
     #[new]
-    fn new(path: &str) -> PyResult<Self> {
+    #[pyo3(signature = (
+        path, ngram = None, pool = DEFAULT_POOL, cost_per_nat = DEFAULT_COST_PER_NAT,
+        max_entries_per_span = DEFAULT_MAX_ENTRIES_PER_SPAN
+    ))]
+    fn new(
+        path: &str,
+        ngram: Option<&str>,
+        pool: usize,
+        cost_per_nat: i32,
+        max_entries_per_span: usize,
+    ) -> PyResult<Self> {
         let dict =
             Dictionary::open(Path::new(path)).map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(Self { dict })
+        let ngram = ngram
+            .map(|p| Table::open(Path::new(p)).map_err(|e| PyValueError::new_err(e.to_string())))
+            .transpose()?;
+        Ok(Self {
+            dict,
+            ngram,
+            pool,
+            cost_per_nat,
+            max_entries_per_span,
+        })
     }
 
     /// 上位 `k` 件の候補の (表記, 読み) を、コストの低い順に返す。
@@ -71,7 +138,7 @@ impl Converter {
         k: usize,
     ) -> Vec<(String, String)> {
         py.allow_threads(|| {
-            convert(&self.dict, input, &Options { k })
+            self.run(input, k)
                 .into_iter()
                 .map(|c| (c.surface, c.reading))
                 .collect()
@@ -87,7 +154,7 @@ impl Converter {
         k: usize,
     ) -> Vec<(String, String, i32)> {
         py.allow_threads(|| {
-            convert(&self.dict, input, &Options { k })
+            self.run(input, k)
                 .into_iter()
                 .map(|c| (c.surface, c.reading, c.cost))
                 .collect()
@@ -109,12 +176,7 @@ impl Converter {
     /// 上位 `k` 件の候補の表記を、コストの低い順に返す。
     #[pyo3(signature = (input, k = 32))]
     fn convert(&self, py: Python<'_>, input: &str, k: usize) -> Vec<String> {
-        py.allow_threads(|| {
-            convert(&self.dict, input, &Options { k })
-                .into_iter()
-                .map(|c| c.surface)
-                .collect()
-        })
+        py.allow_threads(|| self.run(input, k).into_iter().map(|c| c.surface).collect())
     }
 }
 
@@ -266,7 +328,9 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(build_dictionary, m)?)?;
     m.add_function(wrap_pyfunction!(read_english_tsv, m)?)?;
     m.add_function(wrap_pyfunction!(build_prompt, m)?)?;
+    m.add_function(wrap_pyfunction!(write_ngram, m)?)?;
     m.add_class::<Converter>()?;
+    m.add_class::<Ngram>()?;
     m.add_class::<Scorer>()?;
     Ok(())
 }

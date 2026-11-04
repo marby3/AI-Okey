@@ -117,7 +117,8 @@ def test_web_corpus_has_its_legal_basis_recorded_and_never_enters_the_repo_or_re
         assert subprocess.run(["git", "-c", "safe.directory=*", "check-ignore", "-q", path], cwd=ROOT).returncode == 0, path
     # 配布物に入るファイル（Release の Copy-Item と gh release、インストーラーの Source:）は、決めた一覧のものだけ
     allowed = {"aiokey.dll", "aiokey-server.exe", "aiokey-ui.exe", "aiokey-launcher.exe", "aiokey-cli.exe", "LICENSE",
-               "NOTICE", "aiokey.dic", "aiokey-stage2-q8_0.gguf", "aiokey-stage2.json", "README.txt", "register.ps1",
+               "NOTICE", "aiokey.dic", "aiokey-ngram.bin", "aiokey-stage2-q8_0.gguf", "aiokey-stage2.json", "README.txt",
+               "register.ps1",
                "MOZC-DICTIONARY-README.txt", "dxwebsetup.exe"}
     release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
     shipped = [s.strip().strip('"') for line in re.findall(r"Copy-Item (.+?) (?:\$out|\"\$out)", release)

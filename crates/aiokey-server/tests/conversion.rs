@@ -392,3 +392,58 @@ fn broken_config_falls_back_to_defaults_with_a_warning() {
     std::fs::write(&path, "priority = \"fastest\"").unwrap();
     assert!(Config::load(&path).1.is_some());
 }
+
+#[tokio::test]
+async fn server_uses_the_ngram_rerank_and_judges_skipping_stage2_after_it() {
+    // #58 基準 4：サーバーと評価（aiokey.Converter）は同じ並べ替えを使い、段2を飛ばす判定は並べ替えのあとの 1 位と 2 位で行う
+    use aiokey_engine::convert::{convert_reranked, Options};
+    use aiokey_engine::ngram::{to_bytes, Ngram};
+
+    let entries = vec![("ふ".to_string(), 1), ("と".to_string(), 1)];
+    let ngram = Arc::new(Ngram::from_bytes(to_bytes(entries, 1000).unwrap()).unwrap());
+    let rerank = Config::default().ngram.rerank(&ngram);
+    // 配布物の隣にある表を既定で使い、無効にすれば使わない（#58 基準 7）
+    let dir = std::env::temp_dir().join(format!("aiokey-ngram-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let bundled = dir.join(aiokey_server::config::BUNDLED_NGRAM);
+    std::fs::write(&bundled, b"table").unwrap();
+    assert_eq!(
+        Config::default().with_bundled_model(&dir).ngram.table,
+        Some(bundled)
+    );
+    let disabled = Config::from_toml("[ngram]\nenabled = false\n").unwrap();
+    assert_eq!(disabled.with_bundled_model(&dir).ngram.table, None);
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    let input = "htsthqtun";
+    let expected = convert_reranked(&dictionary(), input, &Options { k: 32 }, Some(&rerank));
+    let gap = expected[1].cost - expected[0].cost;
+    let plain = convert_reranked(&dictionary(), input, &Options { k: 32 }, None);
+    assert_ne!(gap, plain[1].cost - plain[0].cost);
+
+    for (skip_cost_gap, reranked) in [(gap, false), (gap + 1, true)] {
+        let mut config = Config::default();
+        config.stage2.skip_cost_gap = skip_cost_gap;
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let loader: Loader = {
+            let calls = calls.clone();
+            Arc::new(move || {
+                Ok(Box::new(Fake {
+                    calls: calls.clone(),
+                    delay: Duration::ZERO,
+                }) as Box<dyn Reranker>)
+            })
+        };
+        let service =
+            ConversionService::with_ngram(dictionary(), Some(ngram.clone()), config, Some(loader));
+        let first = append(&service, input).await;
+        let surfaces: Vec<&str> = first.suggestions.iter().map(|s| s.text.as_str()).collect();
+        let want: Vec<&str> = expected.iter().map(|c| c.surface.as_str()).collect();
+        assert_eq!(surfaces, want);
+        assert_eq!(
+            convert(&service).await.reranked,
+            reranked,
+            "{skip_cost_gap}"
+        );
+    }
+}
