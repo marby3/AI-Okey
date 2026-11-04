@@ -79,11 +79,11 @@ Get-Process aiokey-server, aiokey-ui | Select-Object Name, @{n='WorkingSetMB'; e
 }
 ```
 
-**段2の時間（AVX2）**：温度の 3.44 は、学習済みモデルの校正値（`aiokey-stage2.json` の `temperature`）。
+**段2の時間（AVX2）**：温度の 2.87 は、学習済みモデルの校正値（`aiokey-stage2.json` の `temperature`）。
 
 ```powershell
 $d = "C:\Program Files\AI-O Key"
-& "$d\aiokey-cli.exe" bench --dict "$d\aiokey.dic" --stage2 "$d\aiokey-stage2-q8_0.gguf" --temperature 3.44 --iterations 20
+& "$d\aiokey-cli.exe" bench --dict "$d\aiokey.dic" --stage2 "$d\aiokey-stage2-q8_0.gguf" --temperature 2.87 --iterations 20
 ```
 
 出力の `stage2 p50`、`stage2 p95`、`total p50`、`total p95` と、llama.cpp の機能の行（`AVX2 = 1` が出ていること）を書き写す。

@@ -19,7 +19,7 @@
 //!
 //! 相対パスは設定ファイルのあるフォルダから数える。数値はどれも暫定の既定値で、計測して見直す。
 //! 段2の 3 つの閾値（max_candidates、skip_cost_gap、margin_threshold）は、学習済みモデル（stage2-model-v1）で
-//! dev セットを使って決めた（docs/eval/stage2-trained.md）。
+//! dev セットを使って決めた（docs/eval/stage2-trained.md）。stage2-model-v2 でも同じ値を使う（docs/eval/stage2-v3.md）。
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
