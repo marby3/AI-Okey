@@ -50,6 +50,8 @@ def main(argv: list[str] | None = None) -> int:
     an.add_argument("--temperature", type=float,
                     help="段2の温度。省くと GGUF と同じフォルダの aiokey-stage2.json の temperature")
     an.add_argument("--threads", type=int, default=2)
+    an.add_argument("--no-context", action="store_true", help="段2に文脈を渡さずに測る")
+    an.add_argument("--max-candidates", type=int, help="段2に渡す候補の数。省くとサーバーの既定と同じ")
     an.add_argument("--rows", type=Path, help="例ごとの結果（JSONL）を書く先")
     co = sub.add_parser("compare", help="段2で文を生成する方式（#40）と今の方式を比べ、JSON で出す")
     co.add_argument("--examples", type=Path, required=True, help="sentences が作った JSONL")
@@ -122,11 +124,13 @@ def _analyze(args) -> int:
     from aiokey.analyze import MAX_CANDIDATES, Analyzer, analyze
 
     scorer = None
+    max_candidates = args.max_candidates or MAX_CANDIDATES
     if args.scorer:
-        scorer = Scorer(str(args.scorer), "aiokey", args.threads, MAX_CANDIDATES, _temperature(args))
+        scorer = Scorer(str(args.scorer), "aiokey", args.threads, max_candidates, _temperature(args))
     with open(args.examples, encoding="utf-8") as f:
         examples = [json.loads(line) for line in f if line.strip()]
-    report, rows = analyze(examples, Analyzer(Converter(str(args.dict)), scorer))
+    report, rows = analyze(examples, Analyzer(Converter(str(args.dict)), scorer, max_candidates=max_candidates,
+                                            use_context=not args.no_context))
     if args.rows:
         with open(args.rows, "w", encoding="utf-8") as f:
             for row in rows:

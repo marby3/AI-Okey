@@ -7,9 +7,9 @@
 # 学習し直したら、新しい MODEL_TAG の Release に置き、ここの 3 つの値を変える。
 set -euo pipefail
 
-MODEL_TAG="stage2-model-v1"
-GGUF_SHA256="c6afc903ce0eaed89e42ed02ca35bbd3a0ac489c4f26be98149b544d2e2e768e"
-INFO_SHA256="ad6ce49db33b6ca42c606cfbe31d8305ee0f2e25670ad97142d88cb6dee4059e"
+MODEL_TAG="stage2-model-v2"
+GGUF_SHA256="a77dea520921550b25aaec9a4a9a575796848d412fd0f2d2133e71c70a1c6748"
+INFO_SHA256="3c2311024539d20532454768caa9815debe13e4910f053b755898b28804a0601"
 
 # 一致しなければ、sha256sum がファイル名を出して失敗する
 verify() {

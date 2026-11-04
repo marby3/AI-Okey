@@ -106,3 +106,26 @@ def test_broken_examples_file_names_the_line(tmp_path):
         path.write_text(line + "\n")
         with pytest.raises(evaluate.ExamplesError, match=":1"):
             list(evaluate.read_examples(path))
+
+
+def test_analyzer_can_measure_without_context():
+    # #55 基準 3：文脈なしの測定では、段2に空の文脈を渡す（記録は docs/eval/stage2-model-v2.md）
+    from aiokey.analyze import Analyzer
+
+    class FakeConverter:
+        def convert_with_costs(self, input_, k):
+            return [("候補一", "こうほいち", 0), ("候補二", "こうほに", 1)]
+
+    class FakeScorer:
+        def __init__(self):
+            self.contexts = []
+
+        def score(self, context, input_, candidates):
+            self.contexts.append(context)
+            return [0.5] * len(candidates), None
+
+    example = {"context": "前の文。", "input": "khi", "target": "候補一"}
+    scorer = FakeScorer()
+    Analyzer(FakeConverter(), scorer).rank(example)
+    Analyzer(FakeConverter(), scorer, use_context=False).rank(example)
+    assert scorer.contexts == ["前の文。", ""]

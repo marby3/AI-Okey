@@ -3,7 +3,7 @@
     python -m aiokey sentences --text data/atc/atc26.txt --set atc --out target/eval/atc.jsonl
     python -m aiokey sentences --examples target/examples/test.jsonl --set test --out target/eval/test.jsonl
     python -m aiokey analyze --examples target/eval/atc.jsonl --dict build/aiokey.dic \
-        --scorer data/stage2/aiokey-stage2-q8_0.gguf --temperature 3.44
+        --scorer data/stage2/aiokey-stage2-q8_0.gguf
 
 `sentences` は、ふつうの文（1 行に 1 つ以上の文）から評価の例を作る。文（「。」で区切る）と句（「、」「。」で
 区切る）の 2 つの単位で、子音だけの入力と、母音をいくつか足した入力の両方を作る。
@@ -132,12 +132,14 @@ def char_accuracy(output: str, target: str) -> float:
 
 class Analyzer:
     def __init__(self, converter, scorer=None, k: int = K, skip_cost_gap: int = SKIP_COST_GAP,
-                 max_candidates: int = MAX_CANDIDATES):
+                 max_candidates: int = MAX_CANDIDATES, use_context: bool = True):
         self.converter = converter
         self.scorer = scorer
         self.k = k
         self.skip_cost_gap = skip_cost_gap
         self.max_candidates = max_candidates
+        # False なら段2に文脈を渡さない（文脈がどれだけ効いているかを測る。#55）
+        self.use_context = use_context
         self._word_cache: dict[tuple[str, str], bool] = {}
         from sudachipy import Dictionary, SplitMode
 
@@ -154,7 +156,8 @@ class Analyzer:
         order = list(range(len(c)))
         if self.scorer is not None and len(c) >= 2 and self.uncertain(e["input"], c):
             n = min(len(c), self.max_candidates)
-            probs, _ = self.scorer.score(e.get("context", ""), e["input"], [(s, r) for s, r, _ in c[:n]])
+            context = e.get("context", "") if self.use_context else ""
+            probs, _ = self.scorer.score(context, e["input"], [(s, r) for s, r, _ in c[:n]])
             order = sorted(range(len(probs)), key=lambda i: -probs[i]) + list(range(len(probs), len(c)))
         surfaces = [c[i][0] for i in order]
         target = e["target"]
